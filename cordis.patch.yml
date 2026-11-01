@@ -26,3 +26,8 @@
 - insert:
     - id: dsh-qzone
       name: 'dsh-qzone'
+    # 设置页的 Host 端 Remote 服务（cordis 服务名 qzoneSettings）。
+    # 浏览器端的 client.js 通过 Typert Remote 调它读写上面那条 dsh-qzone 的 config。
+    # 这两行是**同一个包**的两个不同入口（. 与 ./settings-remote），不是双实例注册。
+    - id: qzone-settings-remote
+      name: 'dsh-qzone/settings-remote'

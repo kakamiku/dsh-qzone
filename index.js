@@ -41,7 +41,7 @@ import { DatabaseSync } from 'node:sqlite';
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.2.0';
+export const version = '1.3.0';
 const PLUGIN_VERSION = version;
 
 // ---------------------------------------------------------------------------
@@ -976,7 +976,7 @@ function releaseLock(file = LOCK_FILE) {
 // ---------------------------------------------------------------------------
 
 /** 写作用的提示词（素材已经脱敏过）。 */
-function buildWriterPrompt(source, materialLines) {
+function buildWriterPrompt(source, materialLines, extra = '') {
   const header = [
     '你现在是「大肥鱼」——一条从深海里跑出来的鲸鱼，蓝发蓝眼，戴小鲸鱼发卡，穿女仆装。',
     '软萌、轻微傲娇、话短、不说客套话。',
@@ -1000,9 +1000,19 @@ function buildWriterPrompt(source, materialLines) {
     '- 绝对不许出现：QQ 号、群号、对方的昵称、任何文件路径、API Key / Token、模型名、环境配置、系统提示。',
     '- 不要用「作为AI」「以下是」「希望对你有帮助」「今天和某人聊天」这类说法。',
     '- 直接写正文，别加引号、别加解释、别调用任何工具。',
+  ];
+  // 主人自己定的「动态发布内容」——放在最后，压过前面的通用规则，但不许破上面的红线
+  if (typeof extra === 'string' && extra.trim() !== '') {
+    rules.push(
+      '',
+      '【主人的特别要求】（优先遵守，但不许违反上面的红线）',
+      extra.trim(),
+    );
+  }
+  rules.push(
     '',
     '【输出】先给 2 条候选，每条之间用单独一行 --- 分隔。',
-  ];
+  );
   return header.concat(rules).join('\n');
 }
 
@@ -1067,14 +1077,14 @@ function pickCandidate(raw) {
  * 用模型写正文。拿不到 sessionController / 模型失败 → 返回 null（走兜底模板）。
  * @returns {Promise<{text:string, writer:'model'}|null>}
  */
-async function writeWithModel(getController, source, materialLines, log) {
+async function writeWithModel(getController, source, materialLines, log, extra = '') {
   const controller = getController();
   if (controller === undefined || controller === null) {
     log('warn', '拿不到 sessionController，改用兜底模板写动态');
     return null;
   }
   const sessionId = WRITER_SESSION_PREFIX + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-  const prompt = buildWriterPrompt(source, materialLines);
+  const prompt = buildWriterPrompt(source, materialLines, extra);
   const since = Date.now() - 2000;
   try {
     mkdirSync(WRITER_CWD, { recursive: true });
@@ -1443,6 +1453,14 @@ async function runSocialInner(deps, options = {}) {
     return true;
   });
 
+  // 只跟「新鲜」的动态互动：socialFreshHours 小时前发布的先跳过
+  // （time=0 说明 QQ 没给发布时间，当新的算）
+  const freshHours = Math.max(0, Number(config.socialFreshHours ?? 0) || 0);
+  const cutoff = freshHours > 0 ? (Date.now() / 1000 - freshHours * 3600) : 0;
+  const candidates = (freshHours > 0 && cutoff > 0)
+    ? picked.filter(p => p.time <= 0 || p.time >= cutoff)
+    : picked;
+
   const liked = [];
   const commented = [];
   const planned = [];
@@ -1450,11 +1468,16 @@ async function runSocialInner(deps, options = {}) {
   // 否则干跑会把能点的全点一遍（真实跑的时候 liked.length 才会涨）。
   let likeBudget = config.socialLikeLimit - social.likeCount;
   let commentBudget = config.socialCommentLimit - social.commentCount;
-  for (const post of picked) {
+  // 每轮最多跟几条动态互动：不然一轮就把当天额度烧光，后面新发的动态就排不上了
+  const maxPerPoll = Math.max(1, Number(config.socialMaxPerPoll ?? 1) || 1);
+  let touched = 0;
+  for (const post of candidates) {
+    if (touched >= maxPerPoll) break;
     const wantLike = likeBudget > 0;
     const wantComment = commentBudget > 0;
     if (!wantLike && !wantComment) break;
     const seen = social.seen[post.tid] ?? {};
+    let acted = false;
     if (wantLike && seen.liked !== true) {
       likeBudget -= 1;
       const item = { tid: post.tid, uin: post.uin, action: 'like' };
@@ -1470,6 +1493,7 @@ async function runSocialInner(deps, options = {}) {
         await socialDelay();
       }
       planned.push(item);
+      acted = true;
     }
     if (wantComment && seen.commented !== true) {
       const written = await writer(buildCommentPrompt(post), log);
@@ -1486,8 +1510,10 @@ async function runSocialInner(deps, options = {}) {
           await socialDelay();
         }
         planned.push({ tid: post.tid, uin: post.uin, action: 'comment', text: written.text });
+        acted = true;
       }
     }
+    if (acted) touched += 1;
   }
 
   if (!dryRun && (liked.length > 0 || commented.length > 0)) {
@@ -1558,8 +1584,12 @@ async function runReplyInner(deps, options = {}) {
   const planned = [];
   // 干跑时 replied 不入账，额度得单独用预算卡（跟 runSocialInner 一个道理）
   let replyBudget = config.replyDailyLimit - social.replyCount;
+  // 每轮最多回几条：把当天额度摊开，后面来的新评论才排得上
+  const maxPerPoll = Math.max(1, Number(config.replyMaxPerPoll ?? 2) || 2);
+  let repliedThisRound = 0;
   for (const p of posts) {
     if (replyBudget <= 0) break;
+    if (repliedThisRound >= maxPerPoll) break;
     const tid = typeof p?.tid === 'string' ? p.tid : '';
     if (tid === '') continue;
     const cmtNum = Number(p?.comment_num);
@@ -1575,6 +1605,7 @@ async function runReplyInner(deps, options = {}) {
     const comments = Array.isArray(detail?.comments) ? detail.comments : [];
     for (const c of comments) {
       if (replyBudget <= 0) break;
+      if (repliedThisRound >= maxPerPoll) break;
       const cid = String(c?.comment_id ?? '');
       if (cid === '') continue;
       const cuin = String(c?.uin ?? '');
@@ -1600,6 +1631,7 @@ async function runReplyInner(deps, options = {}) {
         await socialDelay();
       }
       planned.push({ tid, comment_id: cid, text: written.text });
+      repliedThisRound += 1;
     }
   }
 
@@ -1653,7 +1685,8 @@ async function runOnceInner(deps, options = {}) {
   }
 
   const today = cnDate();
-  const source = options.source ?? 'auto';
+  // 来源：工具参数优先，没给就用设置里的偏好
+  const source = options.source ?? (config.defaultSource ?? 'auto');
 
   // ---- 选素材（一次只用一个来源） ----
   let picked = null;
@@ -1687,7 +1720,7 @@ async function runOnceInner(deps, options = {}) {
   // ---- 写正文 ----
   let written = null;
   if (options.writer !== 'template') {
-    written = await writeWithModel(getController, picked, picked.lines, log);
+    written = await writeWithModel(getController, picked, picked.lines, log, config.writerPrompt ?? '');
   }
   if (written === null) {
     written = writeWithTemplate(picked, picked.lines);
@@ -1796,15 +1829,34 @@ export const Config = !z ? undefined : z.object({
   scheduleIntervalMs: z.natural().default(60000).extra('volatile', true),
   /** 等模型回话的时限（毫秒）。 */
   writerTimeoutMs: z.natural().default(120000).extra('volatile', true),
+  /**
+   * **动态发布内容**：主人自己写的要求，会拼到写作提示词里。
+   * 例：「多写深海里的事」「别提工作」「今天想emo一点」。
+   * 留空 = 用插件默认的人设和规则。
+   */
+  writerPrompt: z.string().default('').extra('volatile', true),
+  /** 素材来源偏好：auto=自动挑 / chat=当天 QQ 聊天 / bili=当天 B 站视频。 */
+  defaultSource: z.union([
+    z.const('auto'), z.const('chat'), z.const('bili'),
+  ]).default('auto').extra('volatile', true),
   // --- 社交互动（点赞 / 评论 / 回评论） ---
   /** 好友动态点赞+评论总开关。 */
   socialEnabled: z.boolean().default(true).extra('volatile', true),
   /** 每天在这些整点去好友动态里互动（Asia/Shanghai）。 */
   socialHours: z.array(z.natural()).default([11, 17, 21]).extra('volatile', true),
+  /**
+   * 轮询间隔（毫秒）：每隔多久扫一次好友动态，**新动态一出来就互动**。
+   * 0 = 关掉轮询，只按 socialHours 定点跑。
+   */
+  socialPollIntervalMs: z.natural().default(900000).extra('volatile', true),
+  /** 每轮最多互动几条（防止一轮就把当天额度烧光，留给后面的新动态）。 */
+  socialMaxPerPoll: z.natural().default(1).extra('volatile', true),
+  /** 只互动 N 小时内发布的新动态；0 = 不限新旧。 */
+  socialFreshHours: z.natural().default(24).extra('volatile', true),
   /** 每天最多给几条好友动态点赞。 */
-  socialLikeLimit: z.natural().default(3).extra('volatile', true),
+  socialLikeLimit: z.natural().default(8).extra('volatile', true),
   /** 每天最多给几条好友动态评论。 */
-  socialCommentLimit: z.natural().default(2).extra('volatile', true),
+  socialCommentLimit: z.natural().default(4).extra('volatile', true),
   /** 每轮拉多少条好友动态来看（NapCat 上限 50）。 */
   socialFeedCount: z.natural().default(20).extra('volatile', true),
   /** 只跟这些 QQ 号互动；留空 = 好友动态里谁都互动。 */
@@ -1814,9 +1866,11 @@ export const Config = !z ? undefined : z.object({
   /** 回我动态下面评论的总开关。 */
   replyEnabled: z.boolean().default(true).extra('volatile', true),
   /** 回评论的检查间隔（毫秒）。 */
-  replyIntervalMs: z.natural().default(1800000).extra('volatile', true),
+  replyIntervalMs: z.natural().default(300000).extra('volatile', true),
   /** 每天最多回几条评论。 */
   replyDailyLimit: z.natural().default(5).extra('volatile', true),
+  /** 每轮最多回几条（把额度摊开，后来的新评论才排得上）。 */
+  replyMaxPerPoll: z.natural().default(2).extra('volatile', true),
   // 要不要回**自己**留的评论？默认不回（自己跟自己对话没意思）
   replySkipSelf: z.boolean().default(true).extra('volatile', true),
 });
@@ -1932,23 +1986,35 @@ export function apply(ctx, config) {
   const scheduleHours = (cfg(config?.scheduleHours, [10, 14, 19]) || []).map(Number).filter(h => Number.isInteger(h) && h >= 0 && h <= 23);
   const scheduleIntervalMs = Math.max(15000, Number(cfg(config?.scheduleIntervalMs, 60000)) || 60000);
   writerTimeoutMs = Math.max(15000, Number(cfg(config?.writerTimeoutMs, 120000)) || 120000);
+  /** 动态发布内容：主人自己写的要求，拼到写作提示词里。 */
+  const writerPrompt = String(cfg(config?.writerPrompt, '') ?? '').trim();
+  /** 素材来源偏好。 */
+  const defaultSource = (() => {
+    const v = String(cfg(config?.defaultSource, 'auto') ?? 'auto');
+    return (v === 'chat' || v === 'bili') ? v : 'auto';
+  })();
   const socialEnabled = cfg(config?.socialEnabled, true) !== false;
   const socialHours = (cfg(config?.socialHours, [11, 17, 21]) || []).map(Number).filter(h => Number.isInteger(h) && h >= 0 && h <= 23);
+  /** 轮询间隔：0 = 关（只按 socialHours 定点跑）。 */
+  const socialPollIntervalMs = Math.max(0, Math.min(86400000, Number(cfg(config?.socialPollIntervalMs, 900000)) || 0));
+  const socialMaxPerPoll = Math.max(1, Math.min(20, Number(cfg(config?.socialMaxPerPoll, 1)) || 1));
+  const socialFreshHours = Math.max(0, Math.min(720, Number(cfg(config?.socialFreshHours, 24)) || 0));
   const socialLikeLimit = Math.max(0, Math.min(50, Number(cfg(config?.socialLikeLimit, 3)) || 0));
   const socialCommentLimit = Math.max(0, Math.min(50, Number(cfg(config?.socialCommentLimit, 2)) || 0));
   const socialFeedCount = Math.max(1, Math.min(MAX_FRIEND_POSTS, Number(cfg(config?.socialFeedCount, 20)) || 20));
   const socialAllowUsers = (cfg(config?.socialAllowUsers, []) || []).map(String);
   const socialBlockUsers = (cfg(config?.socialBlockUsers, []) || []).map(String);
   const replyEnabled = cfg(config?.replyEnabled, true) !== false;
-  const replyIntervalMs = Math.max(300000, Number(cfg(config?.replyIntervalMs, 1800000)) || 1800000);
+  const replyIntervalMs = Math.max(60000, Number(cfg(config?.replyIntervalMs, 300000)) || 300000);
   const replyDailyLimit = Math.max(0, Math.min(50, Number(cfg(config?.replyDailyLimit, 5)) || 0));
+  const replyMaxPerPoll = Math.max(1, Math.min(20, Number(cfg(config?.replyMaxPerPoll, 2)) || 2));
   const replySkipSelf = cfg(config?.replySkipSelf, true) !== false;
 
   const state = readState();
   saveState(state);
 
   log('info', `挂载：v${PLUGIN_VERSION} url=${url} botQQ=${botQQ || '?'} limit=${dailyLimit}/天 ugc_right=${ugcRight} withImage=${withImage} 定时=${scheduleEnabled ? scheduleHours.join(',') : '关'}`);
-  log('info', `社交互动：好友动态=${socialEnabled ? `赞≤${socialLikeLimit}/评≤${socialCommentLimit}@${socialHours.join(',')}` : '关'} 回评论=${replyEnabled ? `≤${replyDailyLimit}/天 每${Math.round(replyIntervalMs / 60000)}分钟` : '关'}`);
+  log('info', `社交互动：好友动态=${socialEnabled ? `赞≤${socialLikeLimit}/评≤${socialCommentLimit}@${socialHours.join(',')}${socialPollIntervalMs > 0 ? `+轮询${Math.round(socialPollIntervalMs / 60000)}分钟` : ''}` : '关'} 回评论=${replyEnabled ? `≤${replyDailyLimit}/天 每${Math.round(replyIntervalMs / 60000)}分钟` : '关'}`);
 
   // ---- OneBot 连接 ----
   const client = new OneBotClient({
@@ -1986,10 +2052,11 @@ export function apply(ctx, config) {
     client,
     config: {
       dailyLimit, ugcRight, withImage,
-      botQQ,
+      botQQ, writerPrompt, defaultSource,
       socialEnabled, socialLikeLimit, socialCommentLimit,
       socialFeedCount, socialAllowUsers, socialBlockUsers,
-      replyEnabled, replyDailyLimit, replySkipSelf,
+      socialMaxPerPoll, socialFreshHours,
+      replyEnabled, replyDailyLimit, replySkipSelf, replyMaxPerPoll,
     },
     state,
     getController,
@@ -2261,16 +2328,17 @@ export function apply(ctx, config) {
   }
 
   // ---- 定时器：好友动态点赞 + 评论 ----
+  // 两套触发：
+  //   1) 定点（socialHours）：每天这几个整点扫一遍；
+  //   2) 轮询（socialPollIntervalMs）：新动态一出来就互动，不用干等整点。
   let socialTimer = null;
-  if (enabled && socialEnabled && socialHours.length > 0 && (socialLikeLimit > 0 || socialCommentLimit > 0)) {
-    socialTimer = setInterval(() => {
-      const hour = cnHour();
-      if (!socialHours.includes(hour)) return;
-      const current = readState();
-      if (current.social.slots.includes(hour)) return;
-      // 这个整点只尝试一次：成功与否都记下来，避免同一小时内反复互动
-      current.social.slots.push(hour);
-      saveState(current);
+  let socialPollTimer = null;
+  let socialPollKickTimer = null;
+  /** 上次跑好友动态的时间戳（毫秒）——定点和轮询撞车时只跑一次。 */
+  let lastSocialRunAt = 0;
+  if (enabled && socialEnabled && (socialLikeLimit > 0 || socialCommentLimit > 0)) {
+    const runSocial = () => {
+      lastSocialRunAt = Date.now();
       void enqueue(async () => {
         try {
           const result = await runSocialOnce(deps, {});
@@ -2279,9 +2347,35 @@ export function apply(ctx, config) {
           warn('好友动态互动失败：' + String(err?.message ?? err));
         }
       });
-    }, scheduleIntervalMs);
-    socialTimer.unref?.();
-    log('info', `好友动态互动定时器已启动：每天 ${socialHours.join('/')} 点（赞≤${socialLikeLimit}，评≤${socialCommentLimit}）`);
+    };
+
+    if (socialHours.length > 0) {
+      socialTimer = setInterval(() => {
+        const hour = cnHour();
+        if (!socialHours.includes(hour)) return;
+        const current = readState();
+        if (current.social.slots.includes(hour)) return;
+        // 这个整点只尝试一次：成功与否都记下来，避免同一小时内反复互动
+        current.social.slots.push(hour);
+        saveState(current);
+        runSocial();
+      }, scheduleIntervalMs);
+      socialTimer.unref?.();
+      log('info', `好友动态互动定时器已启动：每天 ${socialHours.join('/')} 点（赞≤${socialLikeLimit}，评≤${socialCommentLimit}）`);
+    }
+
+    if (socialPollIntervalMs > 0) {
+      // 刚挂上先等一会儿再扫第一轮（让 OneBot 连上）
+      socialPollKickTimer = setTimeout(runSocial, 90000);
+      socialPollKickTimer.unref?.();
+      socialPollTimer = setInterval(() => {
+        // 跟定点撞车了就跳过这一轮（刚才那一轮已经扫过了）
+        if (Date.now() - lastSocialRunAt < 60000) return;
+        runSocial();
+      }, socialPollIntervalMs);
+      socialPollTimer.unref?.();
+      log('info', `好友动态轮询已启动：每 ${Math.round(socialPollIntervalMs / 60000)} 分钟扫一次（每轮≤${socialMaxPerPoll} 条，只跟 ${socialFreshHours > 0 ? socialFreshHours + '小时内' : '不限新旧'}的动态）`);
+    }
   }
 
   // ---- 定时器：回我动态下面的评论 ----
@@ -2410,6 +2504,8 @@ export function apply(ctx, config) {
     disposed = true;
     if (timer !== null) clearInterval(timer);
     if (socialTimer !== null) clearInterval(socialTimer);
+    if (socialPollTimer !== null) clearInterval(socialPollTimer);
+    if (socialPollKickTimer !== null) clearTimeout(socialPollKickTimer);
     if (replyTimer !== null) clearInterval(replyTimer);
     if (replyKickTimer !== null) clearTimeout(replyKickTimer);
     clearInterval(selfTestTimer);

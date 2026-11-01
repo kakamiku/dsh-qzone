@@ -21,18 +21,21 @@
 
 | 功能 | 说明 |
 | --- | --- |
-| **发动态** | 每天最多 **3 条**（Asia/Shanghai 自然日，跨天自动重置），`ugc_right: 1` → 进「空友爱看」的公开动态流，纯文字 |
-| **好友动态点赞 + 评论** | 每天定时去 QQ 空间**好友动态**里挑几条新的，点赞并留一句短评论（同一条动态只互动一次） |
-| **回评论** | 定时查自己发过的动态底下有没有人留言，有就回一句（回过的不会重复回） |
+| **发动态** | 每天最多 **3 条**（Asia/Shanghai 自然日，跨天自动重置），`ugc_right: 1` → 进「空友爱看」的公开动态流，纯文字。**写什么由你定**（`writerPrompt`） |
+| **好友动态点赞 + 评论** | **每 15 分钟扫一次**好友动态，**新动态一出来就点赞 + 留一句短评论**，不用等整点（同一条动态只互动一次） |
+| **回评论** | **每 5 分钟查一次**自己发过的动态底下有没有人留言，有就回一句（回过的不会重复回） |
 
 三个功能共用同一条素材链路：素材 → 脱敏 → 让模型按「大肥鱼」的人设写一句话 → 发出去。
+
+> 📦 装好之后，插件会出现在 DSH 的**插件页**里，点进它的页面就能调所有参数
+> （发布上限、发布时间、每天点几个赞、回几条评论、动态写什么……），**不用手改 YAML**。
 
 ---
 
 ## 装法
 
-插件本体是纯 Host 插件（无 UI、无构建步骤）。包自带 `cordis.patch.yml`，
-把插件插进 profile 的配置树 —— 装法有两条，**选一条就行，别两条都上**。
+插件本体是 Host + Client 双半边（带一个设置页，没有构建步骤，源码直接跑）。
+包自带 `cordis.patch.yml`，把插件插进 profile 的配置树 —— 装法有两条，**选一条就行，别两条都上**。
 
 ### A. 当 bundle 装（推荐，装完就生效）
 
@@ -96,6 +99,7 @@ dsh plugin add dsh-qzone
 ## 配置
 
 全部写在 `cordis.patch.yml` 的 `- id: dsh-qzone` → `config:` 里。
+**也可以直接在 DSH 的插件页里改**（见下面的「设置页」），保存即热生效。
 
 ### 发动态
 
@@ -109,6 +113,8 @@ dsh plugin add dsh-qzone
 | `scheduleHours` | `[10,14,19]` | 每天这几个整点各发一条（Asia/Shanghai） |
 | `scheduleIntervalMs` | `60000` | 定时器轮询间隔 |
 | `writerTimeoutMs` | `120000` | 等模型回话的时限 |
+| **`writerPrompt`** | `''` | **动态发布内容**：你自己写的要求，会拼到写作提示词里。例：「多写深海里的事」「别提工作」「今天想emo一点」。留空 = 用默认人设 |
+| `defaultSource` | `auto` | 素材来源偏好：`auto` 自动挑 / `chat` 当天 QQ 对话 / `bili` 当天 B 站视频 |
 | `ownerUsers` | `[]` | 可以用口令手动触发的主人 QQ 号 |
 
 ### 好友动态：点赞 + 评论
@@ -116,9 +122,12 @@ dsh plugin add dsh-qzone
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `socialEnabled` | `true` | 总开关 |
-| `socialHours` | `[11,17,21]` | 每天这几个整点去好友动态里互动 |
-| `socialLikeLimit` | `3` | 每天最多点几个赞 |
-| `socialCommentLimit` | `2` | 每天最多评几条 |
+| **`socialPollIntervalMs`** | `900000` | **轮询间隔**：每隔多久扫一次好友动态，新动态一出来就互动。`0` = 关掉轮询，只按 `socialHours` 定点跑 |
+| `socialHours` | `[11,17,21]` | 定点互动的整点（跟轮询并存，两边撞车时只跑一次） |
+| `socialLikeLimit` | `8` | 每天最多点几个赞 |
+| `socialCommentLimit` | `4` | 每天最多评几条 |
+| **`socialMaxPerPoll`** | `1` | 每轮最多跟几条动态互动：别一轮就把当天额度烧光，留给后面新发的动态 |
+| **`socialFreshHours`** | `24` | 只互动 N 小时内发布的新动态；`0` = 不限新旧 |
 | `socialFeedCount` | `20` | 每轮拉多少条好友动态来看（NapCat 上限 50） |
 | `socialAllowUsers` | `[]` | 只跟这些 QQ 号互动；留空 = 谁都互动 |
 | `socialBlockUsers` | `[]` | 绝不跟这些 QQ 号互动 |
@@ -128,8 +137,9 @@ dsh plugin add dsh-qzone
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `replyEnabled` | `true` | 总开关 |
-| `replyIntervalMs` | `1800000` | 每隔多久查一次有没有新评论（毫秒，最小 5 分钟） |
+| `replyIntervalMs` | `300000` | 每隔多久查一次有没有新评论（毫秒，最小 1 分钟） |
 | `replyDailyLimit` | `5` | 每天最多回几条 |
+| **`replyMaxPerPoll`** | `2` | 每轮最多回几条：把当天额度摊开，后面来的新评论才排得上 |
 | `replySkipSelf` | `true` | 要不要回**自己**留的评论？默认不回（自己跟自己对话没意思） |
 
 ### 凭据
@@ -137,6 +147,24 @@ dsh plugin add dsh-qzone
 | 键 | 说明 |
 | --- | --- |
 | `url` / `accessToken` / `botQQ` | **留空即可** —— 插件自己去 profile 的 `cordis.patch.yml` 里读 dsh-onebot 那段（不把凭据抄第二份） |
+
+---
+
+## 设置页（插件页里直接调）
+
+插件带一个设置面板，装好后在 DSH 的**插件页 → dsh-qzone** 里能看到：
+
+- 四组参数：**发动态** / **好友动态** / **回评论** / **主人与开关**
+- 顶部一行是**今天已经用了多少额度**（发了几条、点了几个赞、评了几条、回了几条）
+- 改完点保存 → 宿主走自己的 `configEditor` 写回 profile 的 `cordis.patch.yml` → **热生效**，不用重启
+
+设置页只暴露**行为参数**；OneBot 的地址 / 令牌 / 机器人 QQ 号在 `dsh-onebot-qq` 那边配，本插件自己去读。
+
+> 第一次装完记得**刷新一下浏览器页面** —— 设置面板是客户端半边，
+> 页面加载时才会把 `dsh-qzone/client` 拉进来。
+> 面板的数据通道是 Typert Remote（命名空间 `qzoneSettings`）：
+> 浏览器 → 宿主网关 → `qzone-settings-remote` 行 → `configEditor.edit` → profile 的 `cordis.patch.yml`。
+> 三方（设置页 / 手改 YAML / 宿主原生设置页）写的是同一份配置，不会打架。
 
 ---
 
@@ -151,13 +179,14 @@ dsh plugin add dsh-qzone
 
 ### 好友动态互动
 
-1. **定时**：每天 `socialHours` 里的每个整点各跑一轮。
-2. **工具**：`qq_qzone_social`（参数 `dryRun` 可选）。
-3. **QQ 私聊口令**：主人说「去点赞」「好友动态」「赞一下」。
+1. **轮询**（主力）：每 `socialPollIntervalMs` 扫一次好友动态，**新动态立刻点赞 + 评论**（每轮最多 `socialMaxPerPoll` 条）。
+2. **定点**：每天 `socialHours` 里的每个整点各跑一轮（跟轮询撞车时只跑一次）。
+3. **工具**：`qq_qzone_social`（参数 `dryRun` 可选）。
+4. **QQ 私聊口令**：主人说「去点赞」「好友动态」「赞一下」。
 
 ### 回评论
 
-1. **定时**：每 `replyIntervalMs` 查一次（挂载后 45 秒先查一轮）。
+1. **定时**：每 `replyIntervalMs` 查一次（挂载后 45 秒先查一轮），每轮最多回 `replyMaxPerPoll` 条。
 2. **工具**：`qq_qzone_reply`（参数 `dryRun` 可选）。
 3. **QQ 私聊口令**：主人说「回评论」「回复评论」。
 
