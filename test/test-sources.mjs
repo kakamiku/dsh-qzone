@@ -150,6 +150,32 @@ const RSS_UNSORTED = `<?xml version="1.0" encoding="UTF-8"?>
   <item><title>中间那条新闻</title><link>https://example.com/m/1</link><pubDate>Sun, 01 Nov 2026 09:00:00 +0800</pubDate></item>
 </channel></rss>`;
 
+/**
+ * 用来测偏好的 RSS：三条新闻，时间新→旧，但「喜欢」的那条在**摘要**里，
+ * 「讨厌」的那条在**标题**里 —— 标题和摘要拼起来一起匹配。
+ */
+const RSS_PREFS = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel>
+  <item>
+    <title>最新但我不爱看的那条</title>
+    <link>https://example.com/p/1</link>
+    <pubDate>Sun, 01 Nov 2026 12:00:00 +0800</pubDate>
+    <description>这条讲的是娱乐八卦，跟我没关系</description>
+  </item>
+  <item>
+    <title>中间那条普普通通</title>
+    <link>https://example.com/p/2</link>
+    <pubDate>Sun, 01 Nov 2026 09:00:00 +0800</pubDate>
+    <description>中规中矩的一条消息</description>
+  </item>
+  <item>
+    <title>最旧但我最爱看的那条</title>
+    <link>https://example.com/p/3</link>
+    <pubDate>Sun, 01 Nov 2026 06:00:00 +0800</pubDate>
+    <description>这条讲的是 AI 大模型和推理加速</description>
+  </item>
+</channel></rss>`;
+
 /** 完全不是 XML 的东西。 */
 const NOT_XML = '<html><head><title>404</title></head><body>页面不存在</body></html>';
 
@@ -318,6 +344,125 @@ await checkAsync('JSON feed 也能解析（kind=json）', async () => {
   assert.equal(res.items[0].summary, 'JSON 里的摘要');
   assert.equal(res.items[0].url, 'https://example.com/j/1');
   assert.equal(res.items[0].source, 'JSON 源');
+});
+
+// ===========================================================================
+// 一之二、偏好（preferences）：筛选 + 打分排序
+// ===========================================================================
+
+console.log('');
+console.log('--- preferences（偏好过滤） ---');
+
+/** 用 RSS_PREFS 跑一次 collectNewsMaterial。 */
+function collectWithPrefs(preferences) {
+  return collectNewsMaterial({
+    feeds: [FEED_A],
+    fetchImpl: mockFetch({ 'https://example.com/a.xml': RSS_PREFS }),
+    preferences,
+  });
+}
+
+await checkAsync('dislike 命中的条目被丢掉（不进 items 也不进 lines）', async () => {
+  const res = await collectWithPrefs({ dislike: ['娱乐八卦'] });
+  assert.equal(res.items.length, 2, '应该剩两条：' + res.items.map((i) => i.title).join(' | '));
+  assert.ok(!res.items.some((i) => i.title.includes('娱乐八卦那条')), '不该留着被讨厌的那条');
+  assert.ok(!res.items.some((i) => i.title.includes('我不爱看')), '不该留着被讨厌的那条');
+  assert.equal(res.lines.length, 2);
+  assert.ok(!res.lines.some((l) => l.includes('我不爱看')), 'lines 里也不该有：' + res.lines.join(' | '));
+});
+
+await checkAsync('dislike 命中摘要也算命中（匹配文本 = 标题 + 摘要）', async () => {
+  const res = await collectWithPrefs({ dislike: ['娱乐八卦'] });
+  assert.ok(!res.items.some((i) => i.summary.includes('娱乐八卦')), '摘要命中也要丢');
+});
+
+await checkAsync('like 命中的条目排到前面', async () => {
+  const res = await collectWithPrefs({ like: ['大模型'] });
+  assert.deepEqual(
+    res.items.map((i) => i.title),
+    ['最旧但我最爱看的那条', '最新但我不爱看的那条', '中间那条普普通通'],
+    '命中 like 的那条应该排第一',
+  );
+});
+
+await checkAsync('keywords 命中的条目也排前面', async () => {
+  const res = await collectWithPrefs({ keywords: ['推理加速'] });
+  assert.equal(res.items[0].title, '最旧但我最爱看的那条');
+});
+
+await checkAsync('得分高的排前面（同分仍按发布时间倒序）', async () => {
+  // 这条命中两个不同的关键词（得分 2），其它命中一个（得分 1）或零个（得分 0）
+  const res = await collectWithPrefs({ like: ['大模型', '推理加速', 'AI'] });
+  assert.equal(res.items[0].title, '最旧但我最爱看的那条', '命中 2 个词的应该第一：' + res.items.map((i) => i.title).join(' | '));
+  assert.equal(res.items[1].title, '最新但我不爱看的那条', '剩下的按时间倒序');
+  assert.equal(res.items[2].title, '中间那条普普通通');
+});
+
+await checkAsync('同一个关键词重复出现只算一次分', async () => {
+  const res = await collectWithPrefs({ like: ['大模型', '大模型', ' 大模型 '] });
+  assert.equal(res.items[0].title, '最旧但我最爱看的那条');
+  // 「大模型」只算 1 分，所以它仍然是第一（命中 1 分 > 命中 0 分）
+  assert.equal(res.items.filter((i) => i.title.includes('最爱看')).length, 1);
+});
+
+await checkAsync('like 和 keywords 里的同一个词只算一次分', async () => {
+  const res = await collectWithPrefs({ like: ['大模型'], keywords: ['大模型'] });
+  assert.equal(res.items[0].title, '最旧但我最爱看的那条');
+  assert.equal(res.items.length, 3);
+});
+
+await checkAsync('preferences 没传 / 三个数组全空 → 排序跟以前一样（只按时间倒序）', async () => {
+  const none = await collectWithPrefs(undefined);
+  const empty = await collectWithPrefs({});
+  const blank = await collectWithPrefs({ like: [], dislike: [], keywords: [] });
+  const expected = ['最新但我不爱看的那条', '中间那条普普通通', '最旧但我最爱看的那条'];
+  assert.deepEqual(none.items.map((i) => i.title), expected, '没传 preferences');
+  assert.deepEqual(empty.items.map((i) => i.title), expected, '空对象');
+  assert.deepEqual(blank.items.map((i) => i.title), expected, '三个空数组');
+});
+
+await checkAsync('关键词忽略大小写', async () => {
+  const lower = await collectWithPrefs({ like: ['大模型'] });
+  const upper = await collectWithPrefs({ like: ['AI'.toLowerCase(), '推理加速'.toUpperCase()] });
+  assert.equal(lower.items[0].title, '最旧但我最爱看的那条');
+  assert.equal(upper.items[0].title, '最旧但我最爱看的那条', '大小写不该影响匹配');
+});
+
+await checkAsync('关键词前后空格被 trim 掉', async () => {
+  const res = await collectWithPrefs({ like: ['  大模型  '], dislike: ['  娱乐八卦  '] });
+  assert.equal(res.items[0].title, '最旧但我最爱看的那条', '空格不该影响匹配');
+  assert.equal(res.items.length, 2, 'dislike 也要能 trim：' + res.items.map((i) => i.title).join(' | '));
+});
+
+await checkAsync('空关键词 / 非字符串关键词被忽略，不炸', async () => {
+  const res = await collectWithPrefs({
+    like: ['', '   ', null, undefined, 123, {}, ['嵌套'], '大模型'],
+    dislike: ['', null, 42],
+  });
+  assert.equal(res.items.length, 3, '不该误伤条目');
+  assert.equal(res.items[0].title, '最旧但我最爱看的那条');
+});
+
+await checkAsync('preferences 传成奇怪的东西也不炸', async () => {
+  for (const prefs of [null, '字符串', 42, [], { like: '不是数组' }, { dislike: 123 }]) {
+    const res = await collectWithPrefs(prefs);
+    assert.equal(res.items.length, 3, '传 ' + JSON.stringify(prefs) + ' 应该什么都不做');
+    assert.equal(res.items[0].title, '最新但我不爱看的那条', '传 ' + JSON.stringify(prefs) + ' 应该只按时间倒序');
+  }
+});
+
+await checkAsync('dislike + like 可以一起用（先丢再排）', async () => {
+  const res = await collectWithPrefs({ dislike: ['娱乐八卦'], like: ['大模型'] });
+  assert.deepEqual(res.items.map((i) => i.title), ['最旧但我最爱看的那条', '中间那条普普通通']);
+  assert.equal(res.lines.length, 2);
+});
+
+await checkAsync('偏好只影响 items / lines，不影响条目的字段形状', async () => {
+  const res = await collectWithPrefs({ like: ['大模型'] });
+  for (const item of res.items) {
+    assert.deepEqual(Object.keys(item).sort(), ['publishedAt', 'source', 'summary', 'title', 'url'].sort(),
+      'items 的字段不该多出 score 之类：' + Object.keys(item).join(','));
+  }
 });
 
 // ===========================================================================

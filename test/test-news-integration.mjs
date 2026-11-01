@@ -1,4 +1,4 @@
-// ¼¯³É²âÊÔ£ºdefaultSource='news' Ê±£¬²å¼þÄÜ²»ÄÜÕæµÄ×¥µ½ÐÂÎÅµ±ËØ²Ä²¢Ð´³öÕýÎÄ£¨dryRun£¬²»·¢£©¡£
+// ï¿½ï¿½ï¿½É²ï¿½ï¿½Ô£ï¿½defaultSource='news' Ê±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ü²ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½×¥ï¿½ï¿½ï¿½ï¿½ï¿½Åµï¿½ï¿½Ø²Ä²ï¿½Ð´ï¿½ï¿½ï¿½ï¿½ï¿½Ä£ï¿½dryRunï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 import { testing } from 'file:///C:/Users/Lenovo/.dsh/profiles/desktop/local-plugins/dsh-qzone/index.js';
 
 const calls = [];
@@ -8,21 +8,22 @@ const fakeClient = {
 const deps = {
   client: fakeClient,
   config: {
-    dailyLimit: 3, ugcRight: 1, withImage: false, publishToPublicFeed: false,
+    dailyLimit: 999, ugcRight: 1, imageRatio: 0,
     botQQ: '3148436483', writerPrompt: '', defaultSource: 'news',
     newsLimit: 4, newsFeeds: [], localImageDir: '',
+    newsLike: [], newsDislike: [], newsKeywords: [], newsFollowBiliPreferences: false,
     socialEnabled: false, socialLikeLimit: 0, socialCommentLimit: 0,
     socialFeedCount: 20, socialAllowUsers: [], socialBlockUsers: [],
     socialMaxPerPoll: 1, socialFreshHours: 24,
     replyEnabled: false, replyDailyLimit: 0, replySkipSelf: true, replyMaxPerPoll: 0,
   },
   state: null,
-  getController: () => undefined,   // Ã»ÓÐÄ£ÐÍ -> ×ß¶µµ×Ä£°å
+  getController: () => undefined,   // Ã»ï¿½ï¿½Ä£ï¿½ï¿½ -> ï¿½ß¶ï¿½ï¿½ï¿½Ä£ï¿½ï¿½
   log: (level, msg) => { if (level === 'error' || level === 'warn') console.log('  [warn]', msg); },
 };
 
 const result = await testing.runOnce(deps, { dryRun: true });
-console.log('½á¹û ok =', result.ok, '| reason =', result.reason ?? '-');
-console.log('À´Ô´ =', result.source ?? '-', '| Ð´×÷·½Ê½ =', result.writer ?? '-');
-console.log('ÕýÎÄ =', JSON.stringify(result.content ?? result.message ?? ''));
-console.log('·¢³öµÄ action =', JSON.stringify(calls));
+console.log('ï¿½ï¿½ï¿½ ok =', result.ok, '| reason =', result.reason ?? '-');
+console.log('ï¿½ï¿½Ô´ =', result.source ?? '-', '| Ð´ï¿½ï¿½ï¿½ï¿½Ê½ =', result.writer ?? '-');
+console.log('ï¿½ï¿½ï¿½ï¿½ =', JSON.stringify(result.content ?? result.message ?? ''));
+console.log('ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ action =', JSON.stringify(calls));

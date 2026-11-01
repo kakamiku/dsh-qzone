@@ -212,6 +212,78 @@ check('不传参数时用当前时间（不抛，返回 HH:MM）', () => {
 });
 
 // ===========================================================================
+// 三、parseSocialTimes（好友动态定点互动：精确到分钟）
+// ===========================================================================
+
+console.log('');
+console.log('--- testing.parseSocialTimes ---');
+
+check('index.js 导出了 testing.parseSocialTimes', () => {
+  assert.equal(typeof testing.parseSocialTimes, 'function');
+});
+
+check('socialAt 三个时刻：按升序返回', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['11:07', '17:23', '21:41'] });
+  assert.deepEqual(out, ['11:07', '17:23', '21:41']);
+});
+
+check('socialAt 输入乱序也按升序返回', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['21:41', '11:07'] });
+  assert.deepEqual(out, ['11:07', '21:41']);
+});
+
+check('socialAt 重复的 "17:23" 去重成一个', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['17:23', '17:23'] });
+  assert.deepEqual(out, ['17:23']);
+});
+
+check('socialAt 非法的 "11:99" 被丢掉', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['11:99'] });
+  assert.deepEqual(out, []);
+});
+
+check('socialAt 非法的 "25:00" 被丢掉', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['25:00'] });
+  assert.deepEqual(out, []);
+});
+
+check('老配置 socialHours:[11,17,21] → ["11:00","17:00","21:00"]', () => {
+  const out = testing.parseSocialTimes({ socialHours: [11, 17, 21] });
+  assert.deepEqual(out, ['11:00', '17:00', '21:00']);
+});
+
+check('socialAt 为空 → 回落老的 socialHours', () => {
+  const out = testing.parseSocialTimes({ socialAt: [], socialHours: [12] });
+  assert.deepEqual(out, ['12:00']);
+});
+
+check('socialAt 有合法项 → 不看 socialHours（新的优先）', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['18:30'], socialHours: [12] });
+  assert.deepEqual(out, ['18:30']);
+});
+
+check('全角冒号 / 带空格也认', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['11：07', '17 : 23'] });
+  assert.deepEqual(out, ['11:07', '17:23']);
+});
+
+check('空配置 {} → []', () => {
+  assert.deepEqual(testing.parseSocialTimes({}), []);
+});
+
+check('socialAt 不是数组 → []', () => {
+  assert.deepEqual(testing.parseSocialTimes({ socialAt: '11:00' }), []);
+});
+
+check('结果全是 HH:MM 的形状（正则全过）', () => {
+  const out = testing.parseSocialTimes({ socialAt: ['0:0', '23:59'] });
+  for (const item of out) {
+    assert.match(item, /^([01]\d|2[0-3]):[0-5]\d$/, '形状不对：' + item);
+  }
+  assert.deepEqual(out, ['00:00', '23:59']);
+});
+
+// ===========================================================================
 // 汇总
 // ===========================================================================
 

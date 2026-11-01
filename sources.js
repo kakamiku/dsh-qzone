@@ -25,6 +25,13 @@
  *   export async function collectNewsMaterial(options = {}) -> { lines, items }
  *   export function pickLocalImage(dir, options = {}) -> string | null
  *
+ * 偏好（options.preferences）
+ * ------------------------
+ *   { like?: string[], dislike?: string[], keywords?: string[] }
+ *   - dislike 命中的条目直接丢掉
+ *   - like / keywords 命中的条目 +1 分，得分高的排前面（同分按时间倒序）
+ *   - 没传 / 三个数组全空 = 只按时间倒序（跟原来完全一致）
+ *
  * @module dsh-qzone/sources
  */
 
@@ -137,6 +144,84 @@ function titleKey(title) {
   return String(title)
     .toLowerCase()
     .replace(/[\s·・.,，、。!！?？:：;；"'“”‘’()（）\[\]【】{}<>《》\-—–_|｜/\\+*~`]/g, '');
+}
+
+// ---------------------------------------------------------------------------
+// 偏好（preferences）
+//
+// 主人对新闻的喜恶，作用在**筛选**和**排序**两步上：
+//
+//   dislike —— 命中的条目**直接丢掉**（不参与排序、不进 items、不进 lines）。
+//   like / keywords —— 命中的条目**得分 +1**：同一条命中几个不同的关键词就得几分。
+//     同一个关键词重复出现只算一次（like 和 keywords 合并成一个集合算）。
+//
+// 排序：得分高的在前；同分按发布时间倒序（跟没传偏好时一样）。
+// 没传 preferences、或者三个数组全空 → 行为跟原来**完全一致**（只按时间倒序）。
+//
+// 关键词匹配：忽略大小写、去掉首尾空白；空串 / 非字符串的关键词直接忽略。
+// 匹配文本 = 标题 + 空格 + 摘要（标题和摘要拼起来一起找）。
+// ---------------------------------------------------------------------------
+
+/**
+ * 关键词列表归一化：trim、小写、丢掉空串和非字符串、去重。
+ * @param {unknown} list
+ * @returns {string[]}
+ */
+function normalizeKeywords(list) {
+  const out = [];
+  if (!Array.isArray(list)) return out;
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const text = item.trim().toLowerCase();
+    if (text === '') continue;
+    if (out.includes(text)) continue;
+    out.push(text);
+  }
+  return out;
+}
+
+/**
+ * 把 preferences 归一化成 { like, dislike, keywords }。
+ * 传错 / 没传 / 不是对象 → 三个空数组（等于没传）。
+ */
+function normalizePreferences(raw) {
+  const empty = { like: [], dislike: [], keywords: [] };
+  try {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return empty;
+    return {
+      like: normalizeKeywords(raw.like),
+      dislike: normalizeKeywords(raw.dislike),
+      keywords: normalizeKeywords(raw.keywords),
+    };
+  } catch {
+    return empty;
+  }
+}
+
+/** 条目的匹配文本：标题 + 空格 + 摘要（统一小写）。 */
+function matchText(title, summary) {
+  return (String(title ?? '') + ' ' + String(summary ?? '')).toLowerCase();
+}
+
+/** 文本里是否命中任意一个关键词。 */
+function hitsAny(text, keywords) {
+  for (const keyword of keywords) {
+    if (text.includes(keyword)) return true;
+  }
+  return false;
+}
+
+/**
+ * 给一条新闻打分：命中几个**不同的**关键词就得几分。
+ * @param {string} text 已经小写化的匹配文本
+ * @param {string[]} keywords 去重后的关键词集合
+ */
+function scoreItem(text, keywords) {
+  let score = 0;
+  for (const keyword of keywords) {
+    if (text.includes(keyword)) score += 1;
+  }
+  return score;
 }
 
 /** 取标签内容（不分大小写，忽略属性）。 */
@@ -327,6 +412,9 @@ async function fetchFeedText(url, { fetchImpl, timeoutMs }) {
  * @param {number} [options.timeoutMs=8000] 单个 feed 的超时
  * @param {Function} [options.fetchImpl=fetch] 可注入的 fetch（测试用）
  * @param {number} [options.now=Date.now()] 兜底时间戳（feed 没给发布时间时用）
+ * @param {{like?:string[],dislike?:string[],keywords?:string[]}} [options.preferences]
+ *        主人的偏好：dislike 命中的条目直接丢掉；like / keywords 命中的条目 +1 分，
+ *        得分高的排前面（同分仍按发布时间倒序）。不传 = 只按时间倒序。
  * @returns {Promise<{lines:string[], items:Array<{title:string,summary:string,url:string,source:string,publishedAt:string}>}>}
  */
 export async function collectNewsMaterial(options = {}) {
@@ -336,6 +424,10 @@ export async function collectNewsMaterial(options = {}) {
   const timeoutMs = Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0 ? opts.timeoutMs : 8000;
   const fetchImpl = typeof opts.fetchImpl === 'function' ? opts.fetchImpl : (typeof fetch === 'function' ? fetch : null);
   const now = Number.isFinite(opts.now) ? opts.now : Date.now();
+
+  // 偏好：dislike 直接丢，like + keywords 合成一个打分关键词集合
+  const prefs = normalizePreferences(opts.preferences);
+  const scoreKeywords = [...prefs.like, ...prefs.keywords].filter((kw, i, arr) => arr.indexOf(kw) === i);
 
   const empty = { lines: [], items: [] };
   if (fetchImpl === null) return empty;
@@ -372,6 +464,9 @@ export async function collectNewsMaterial(options = {}) {
       if (title.length < 3) continue;                 // 太短，多半是栏目名/空标题
       if (title.length > 160) continue;               // 太长，多半是整个页面被当成了标题
       if (isAd(title, p.summary)) continue;           // 广告 / 推广
+      // 偏好过滤：dislike 命中的条目直接丢掉（不参与排序、不进 items、不进 lines）。
+      // 放在去重**之前**，免得一条被嫌弃的重复稿把同标题的好稿一起顶掉。
+      if (prefs.dislike.length > 0 && hitsAny(matchText(title, p.summary), prefs.dislike)) continue;
       raw.push({
         title,
         summary: p.summary,
@@ -398,8 +493,14 @@ export async function collectNewsMaterial(options = {}) {
     unique.push(item);
   }
 
-  // 4. 按发布时间倒序（新的在前），再截断
-  unique.sort((a, b) => b.publishedMs - a.publishedMs);
+  // 4. 排序：**得分高的在前**；同分按发布时间倒序（新的在前），再截断
+  //    （没传偏好时所有条目得分都是 0，等价于原来的纯时间倒序）
+  for (const item of unique) {
+    item.score = scoreKeywords.length > 0
+      ? scoreItem(matchText(item.title, item.summary), scoreKeywords)
+      : 0;
+  }
+  unique.sort((a, b) => (b.score - a.score) || (b.publishedMs - a.publishedMs));
   const picked = unique.slice(0, limit);
 
   // 5. 产出给模型看的短句 + 结构化条目

@@ -102,7 +102,7 @@ dsh plugin add dsh-qzone
 
 | 插件 | 干嘛的 | 不装会怎样 |
 | --- | --- | --- |
-| [`dsh-meme`](https://github.com/yyh-001/dsh-meme) | 配图用的表情包图库 | 配图改成从**你本地的图片文件夹**里随机挑（配置项 `localImageDir`）。两个都不想要就 `withImage: false`，纯文字发动态 |
+| [`dsh-meme`](https://github.com/yyh-001/dsh-meme) | 配图用的表情包图库 | 配图改成从**你本地的图片文件夹**里随机挑（配置项 `localImageDir`）。两个都不想要就 `imageRatio: 0`，纯文字发动态 |
 | [`dsh-bili-whale`](https://github.com/Alterssss/dsh-bili-whale) | B 站素材来源（读它日记里的「## 看过」表） | B 站这条素材来源就没了。**换成「新闻」来源顶上** —— 插件自带 RSS 抓取，不装任何插件也能拿到当天的新闻当素材 |
 
 > 一句话：**只有 `dsh-onebot-qq` 是硬需求**，其余两个都是「有更好、没有也能跑」。
@@ -122,8 +122,7 @@ dsh plugin add dsh-qzone
 | `enabled` | `true` | 总开关 |
 | `dailyLimit` | `3` | 每天最多发几条 |
 | `ugcRight` | `1` | 空间权限：1 所有人可见 / 4 好友可见 / 16 部分好友可见 / 64 仅自己可见 / 128 部分好友不可见 |
-| `withImage` | `false` | 是否配图（表情包，或本地图片文件夹里随机挑一张，见下面的「带图 vs 不带图」） |
-| `publishToPublicFeed` | `false` | 要不要进「空友爱看」的公开流。**实测：进不去**（公开流是服务端投稿+审核的产物，NapCat 没有投稿接口），所以这个开关的实际作用是「发完真去核验一次并如实回报」 |
+| **`imageRatio`** | `0` | **带图概率**：`0` = 只发纯文字，`1` = 只发带图，`0.5` = 一半一半。每发一条动态掷一次骰子。图源优先用 `dsh-meme` 的表情包；没装 `dsh-meme` 就从 `localImageDir` 里挑。老配置 `withImage` 仍然认（`true` = 1，`false` = 0） |
 | `scheduleEnabled` | `true` | 定时发 |
 | `scheduleAt` | `['10:00','14:00','19:00']` | 每天这几个**时刻**各发一条，**精确到分钟**（Asia/Shanghai）。老配置的 `scheduleHours`（只到整点）仍然认，但新配置优先 |
 | `scheduleIntervalMs` | `60000` | 定时器轮询间隔 |
@@ -132,6 +131,10 @@ dsh plugin add dsh-qzone
 | `defaultSource` | `auto` | 素材来源偏好：`auto` 自动挑 / `chat` 当天 QQ 对话 / `bili` 当天 B 站视频 / `news` 当天新闻（**不需要**装任何插件） |
 | `newsLimit` | `6` | 新闻素材最多取几条 |
 | `newsFeeds` | `[]` | 自定义新闻源（RSS 地址，一行一个）。留空 = 用插件自带的 6 个源 |
+| **`newsFollowBiliPreferences`** | `true` | 要不要**沿用 dsh-bili-whale 的偏好**：把它配置里的 `preferences.like/dislike/keywords` 也拿来筛新闻。装了 dsh-bili-whale 才有效，没装就当没开 |
+| `newsLike` | `[]` | 新闻素材的**偏好**：喜欢的题材（命中就排前面），一行一个 |
+| `newsDislike` | `[]` | 新闻素材的**偏好**：不喜欢的题材（命中直接丢掉），一行一个 |
+| `newsKeywords` | `[]` | 新闻素材的**偏好**：额外关键词（命中就排前面），一行一个 |
 | `localImageDir` | `''` | 没装 `dsh-meme`（没有表情包图库）时，从这个本地文件夹随机挑一张配图。例：`C:\Users\Lenovo\Pictures` |
 | `ownerUsers` | `[]` | 可以用口令手动触发的主人 QQ 号 |
 
@@ -140,8 +143,8 @@ dsh plugin add dsh-qzone
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `socialEnabled` | `true` | 总开关 |
-| **`socialPollIntervalMs`** | `900000` | **轮询间隔**：每隔多久扫一次好友动态，新动态一出来就互动。`0` = 关掉轮询，只按 `socialHours` 定点跑 |
-| `socialHours` | `[11,17,21]` | 定点互动的整点（跟轮询并存，两边撞车时只跑一次） |
+| **`socialPollIntervalMs`** | `900000` | **轮询间隔**：每隔多久扫一次好友动态，新动态一出来就互动。`0` = 关掉轮询，只按 `socialAt` 定点跑 |
+| **`socialAt`** | `['11:00','17:00','21:00']` | 定点互动的**时刻**，**精确到分钟**（跟轮询并存，两边撞车时只跑一次）。老配置的 `socialHours`（只到整点）仍然认，但新配置优先 |
 | `socialLikeLimit` | `8` | 每天最多点几个赞 |
 | `socialCommentLimit` | `4` | 每天最多评几条 |
 | **`socialMaxPerPoll`** | `1` | 每轮最多跟几条动态互动：别一轮就把当天额度烧光，留给后面新发的动态 |
@@ -172,7 +175,7 @@ dsh plugin add dsh-qzone
 
 插件带一个设置面板，装好后在 DSH 的**设置页 → QQ 空间**里能看到：
 
-- 四组参数：**发动态** / **好友动态** / **回评论** / **主人与开关**（共 30 项）
+- 四组参数：**发动态** / **好友动态** / **回评论** / **主人与开关**（共 33 项）
 - 顶部一行是**今天已经用了多少额度**（发了几条、点了几个赞、评了几条、回了几条）
 - **保存按钮在页面最末尾**：改完参数往下一路看，滚到底再点保存
 - 改完点保存 → 宿主走自己的 `configEditor` 写回 profile 的 `cordis.patch.yml` → **热生效**，不用重启
@@ -200,13 +203,13 @@ dsh plugin add dsh-qzone
 
 1. **定时**：每天 `scheduleAt` 里的每个时刻各发一条（**精确到分钟**，到点检查，同一时刻只试一次，成功与否都记账）。
 2. **工具**：`qq_post_qzone`（注册在插件作用域，宿主里**全局可见**，QQ 会话里的模型也能直接调）。
-   参数：`source`（`auto` / `chat` / `bili` / `news`）、`withImage`（可选）、`dryRun`（可选，只生成不发送）。
+   参数：`source`（`auto` / `chat` / `bili` / `news`）、`withImage`（可选，强制带图/纯文字；不给就按 `imageRatio` 掷骰子）、`dryRun`（可选，只生成不发送）。
 3. **QQ 私聊口令**：主人在私聊里说「发条空间动态」「发表说说」之类，插件发完私聊回一句结果。
 
 ### 好友动态互动
 
 1. **轮询**（主力）：每 `socialPollIntervalMs` 扫一次好友动态，**新动态立刻点赞 + 评论**（每轮最多 `socialMaxPerPoll` 条）。
-2. **定点**：每天 `socialHours` 里的每个整点各跑一轮（跟轮询撞车时只跑一次）。
+2. **定点**：每天 `socialAt` 里的每个时刻各跑一轮（**精确到分钟**，跟轮询撞车时只跑一次）。
 3. **工具**：`qq_qzone_social`（参数 `dryRun` 可选）。
 4. **QQ 私聊口令**：主人说「去点赞」「好友动态」「赞一下」。
 
@@ -232,6 +235,9 @@ dsh plugin add dsh-qzone
   （人民网和新华网的 RSS 实测已经冻结在 2025 年 / 2022 年，所以没用）。
   单个源失败就跳过，全部失败就当没素材；按发布时间倒序、标题去重、滤掉广告条目。
   自定义源用 `newsFeeds` 写 RSS 地址。
+  **素材偏好**：`newsDislike` 命中的条目**直接丢掉**，`newsLike` / `newsKeywords` 命中的排前面。
+  装了 `dsh-bili-whale` 的话，`newsFollowBiliPreferences: true` 会把它配置里的
+  `preferences.like/dislike/keywords` 也一并拿来筛（跟你看 B 站一个口味）。
 
 私人日记 `whale-diary-private.md` 与日记正文（`## 给他的信` / `## 日常` / `## 想说`）**永不读取**。
 
@@ -270,7 +276,7 @@ NapCat 的 `send_qzone_msg` 内部按 **有没有图片** 走两条互斥的路�
 `union_id` 用 32 位 hex。而上面两条路落库都是 `domain_type=1` 的私有域说说，
 `archivable_status=NOT_ARCHIVED` —— **服务端强制降级，客户端参数改不动**。
 
-实测过三条路，全部进不去：
+实测过四条路，全部进不去：
 
 | 试过的路 | 结果 |
 | --- | --- |
@@ -283,11 +289,11 @@ NapCat 的 `send_qzone_msg` 内部按 **有没有图片** 走两条互斥的路�
 NapCat 9.9.33 的 28 个 QZone action 里也没有任何一个能写公开域。
 另外账号侧还有 `kuolie_in_qzone_write_whitelist: false`（写白名单没进）。
 
-所以本插件的做法是：**不吹**。打开 `publishToPublicFeed` 后，插件发完会真的
-`get_qzone_public_feeds` 回读一次公开流，核验这条到底进没进去，
-结果如实写进日志和回执（进不去就明说进不去），而不是嘴上说「已经进啦」。
+所以 v1.4.0 里那个「投稿到空友爱看」的开关**已经删掉了** —— 既然进不去，留着只会让人误以为能进。
+本插件发出去的，就是**自己 QQ 空间里的说说**（访客进空间能看到，仅此而已）。
 
-> 想要带图：把 `withImage` 打开，图源优先用 `dsh-meme` 的表情包图库；
+> 想要带图：把 `imageRatio` 调大（`0` 只发文字，`1` 只发带图，`0.5` 一半一半），
+> 图源优先用 `dsh-meme` 的表情包图库；
 > **没装 `dsh-meme`** 的话，改用 `localImageDir` 指向一个本地图片文件夹，
 > 插件会从里面（往下最多 2 层）随机挑一张。
 

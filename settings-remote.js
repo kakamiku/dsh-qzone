@@ -69,11 +69,12 @@ export const REMOTE_EFFECT = 'restart';
 export const SETTINGS_GROUPS = {
   post: [
     'dailyLimit', 'scheduleEnabled', 'scheduleAt', 'scheduleIntervalMs',
-    'withImage', 'publishToPublicFeed', 'ugcRight', 'writerPrompt', 'defaultSource',
-    'newsLimit', 'newsFeeds', 'localImageDir', 'writerTimeoutMs',
+    'imageRatio', 'ugcRight', 'writerPrompt', 'defaultSource',
+    'newsLimit', 'newsFeeds', 'newsLike', 'newsDislike', 'newsKeywords',
+    'newsFollowBiliPreferences', 'localImageDir', 'writerTimeoutMs',
   ],
   social: [
-    'socialEnabled', 'socialHours', 'socialPollIntervalMs', 'socialLikeLimit',
+    'socialEnabled', 'socialAt', 'socialPollIntervalMs', 'socialLikeLimit',
     'socialCommentLimit', 'socialMaxPerPoll', 'socialFreshHours', 'socialFeedCount',
     'socialAllowUsers', 'socialBlockUsers',
   ],
@@ -88,18 +89,21 @@ export const SCHEMA_DEFAULTS = {
   scheduleEnabled: true,
   scheduleAt: ['10:00', '14:00', '19:00'],
   scheduleIntervalMs: 60000,
-  withImage: false,
-  publishToPublicFeed: false,
+  imageRatio: 0,
   ugcRight: 1,
   writerPrompt: '',
   defaultSource: 'auto',
   newsLimit: 6,
   newsFeeds: [],
+  newsLike: [],
+  newsDislike: [],
+  newsKeywords: [],
+  newsFollowBiliPreferences: true,
   localImageDir: '',
   writerTimeoutMs: 120000,
   // --- 好友动态 ---
   socialEnabled: true,
-  socialHours: [11, 17, 21],
+  socialAt: ['11:00', '17:00', '21:00'],
   socialPollIntervalMs: 900000,
   socialLikeLimit: 8,
   socialCommentLimit: 4,
@@ -131,23 +135,26 @@ export const ENUM_KEYS = {
 };
 /** 数字键（区间见 NUMBER_RANGE）。 */
 export const NUMBER_KEYS = [
-  'dailyLimit', 'scheduleIntervalMs', 'writerTimeoutMs', 'newsLimit',
+  'dailyLimit', 'scheduleIntervalMs', 'writerTimeoutMs', 'newsLimit', 'imageRatio',
   'socialPollIntervalMs', 'socialLikeLimit', 'socialCommentLimit', 'socialFeedCount',
   'replyIntervalMs', 'replyDailyLimit',
 ];
-/** 数字数组键（元素是 0~23 的整点小时）。 */
-export const NUMBER_ARRAY_KEYS = ['socialHours'];
+/** 数字数组键（元素是 0~23 的整点小时）。老配置兼容用，不在面板里。 */
+export const NUMBER_ARRAY_KEYS = [];
 /** 时刻数组键（元素是 HH:MM 字符串，精确到分钟）。 */
-export const TIME_ARRAY_KEYS = ['scheduleAt'];
+export const TIME_ARRAY_KEYS = ['scheduleAt', 'socialAt'];
 /** 布尔键。 */
 export const BOOLEAN_KEYS = [
-  'enabled', 'scheduleEnabled', 'withImage', 'publishToPublicFeed',
+  'enabled', 'scheduleEnabled', 'newsFollowBiliPreferences',
   'socialEnabled', 'replyEnabled', 'replySkipSelf',
 ];
 /** 字符串键。 */
 export const STRING_KEYS = ['writerPrompt', 'localImageDir'];
-/** 字符串数组键（QQ 号列表 / RSS 地址列表）。 */
-export const STRING_ARRAY_KEYS = ['ownerUsers', 'socialAllowUsers', 'socialBlockUsers', 'newsFeeds'];
+/** 字符串数组键（QQ 号列表 / RSS 地址列表 / 偏好关键词）。 */
+export const STRING_ARRAY_KEYS = [
+  'ownerUsers', 'socialAllowUsers', 'socialBlockUsers',
+  'newsFeeds', 'newsLike', 'newsDislike', 'newsKeywords',
+];
 /** 空间动态可见范围（NapCat 的 ugc_right）。 */
 export const UGC_RIGHTS = [1, 4, 16, 64, 128];
 
@@ -160,6 +167,7 @@ export const NUMBER_RANGE = {
   scheduleIntervalMs: [15000, 3600000],
   writerTimeoutMs: [15000, 1800000],
   newsLimit: [1, 20],
+  imageRatio: [0, 1],
   socialPollIntervalMs: [0, 86400000],
   socialLikeLimit: [0, 50],
   socialCommentLimit: [0, 50],
