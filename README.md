@@ -232,24 +232,17 @@ dsh plugin add dsh-qzone
   `whale-log.jsonl` 只作补充（`at ?? ts`，UTC → 本地日）。
 - **`news`**：**插件自带**的 RSS 抓取（`sources.js`，零依赖，不用装任何插件）。
   默认 6 个源：中国新闻网滚动新闻 / 界面新闻 / 36氪 / 钛媒体 / IT之家 / 少数派
-  （人民网和新华网的 RSS 实测已经冻结在 2025 年 / 2022 年，所以没用）。
   单个源失败就跳过，全部失败就当没素材；按发布时间倒序、标题去重、滤掉广告条目。
   自定义源用 `newsFeeds` 写 RSS 地址。
   **素材偏好**：`newsDislike` 命中的条目**直接丢掉**，`newsLike` / `newsKeywords` 命中的排前面。
   装了 `dsh-bili-whale` 的话，`newsFollowBiliPreferences: true` 会把它配置里的
   `preferences.like/dislike/keywords` 也一并拿来筛（跟你看 B 站一个口味）。
 
-私人日记 `whale-diary-private.md` 与日记正文（`## 给他的信` / `## 日常` / `## 想说`）**永不读取**。
-
 ### 好友动态 / 回评论：素材来自 QQ 空间本身
 
 - **好友动态**走 NapCat 的 `get_qzone_feeds`（官方名就叫「获取QQ空间好友动态」），返回里混着自己发的和占位条目，插件会按 `botQQ` 和 QQ 号合法性过滤掉。
 - **回评论**走 `get_qzone_msg_list`（我自己的说说列表，带 `comment_num`）→ `get_qzone_msg_detail`（底下的评论）→ `comment_qzone` 带上 `comment_id` / `comment_uin` 回过去。
 
-> **为什么不用「空友爱看」公共族？**
-> `get_qzone_public_feeds` 是**推荐流**，实测连续翻 5 页 49 条里没有一条是好友的，也没有自己发的；
-> 而且公共族的 feed 对象里根本没有 `tid`，没法用它那套 `like_qzone` / `comment_qzone`。
-> 好友动态这件事，老接口族（SnowLuma）才是对的：它直接给出好友的 QQ 号 + 说说 `tid`。
 
 ### 脱敏
 
@@ -267,33 +260,8 @@ NapCat 的 `send_qzone_msg` 内部按 **有没有图片** 走两条互斥的路�
 | **纯文字**（`images: []`） | `QzoneApi.publishMsg` → RPC `PublishFeed`（`trpc.qzone.feeds_writer.FeedsWriter`，`0x9775`） | 发到**自己空间的经典说说** |
 | **带图**（`images: [路径]`） | `WebApi.publishQzoneMsg` → `emotion_cgi_publish_v6` | 同样是**自己空间的经典说说**，只是能带图 |
 
-两条路落库都是 `domain_type=1`（私有域），**都不在「空友爱看」的公开流里**。
-
-### 关于「空友爱看」（实测结论，别被文档骗了）
-
-「空友爱看」的公开流是**服务端投稿(contribute) + 审核**的产物：
-公开流里的帖子特征是 `domain_type=3` / `feed_biz_type=3` / `archivable_status=2(ARCHIVED)`，
-`union_id` 用 32 位 hex。而上面两条路落库都是 `domain_type=1` 的私有域说说，
-`archivable_status=NOT_ARCHIVED` —— **服务端强制降级，客户端参数改不动**。
-
-实测过四条路，全部进不去：
-
-| 试过的路 | 结果 |
-| --- | --- |
-| `send_qzone_msg` 纯文字 | 自己空间说说，公开流里没有 |
-| `send_qzone_msg` 带图 | 同上，公开流里没有 |
-| 手工裸调 gotrpc `PublishFeed` 带 `domain_type=3` + `feed_biz_type=3` | 服务器 `retcode=0` 收单，**回读被降级**成 `domain_type=1 / NOT_ARCHIVED` |
-| `forward_qzone_public_feed`（转发公开流的一条） | 把别人的内容搬进**自己**空间，仍是 `domain_type=1` |
-
-原因：投稿入口 `ContributeFeed` **只存在于 QQ 客户端**，PC Web 的 bundle 里搜 `contribute` 零命中；
-NapCat 9.9.33 的 28 个 QZone action 里也没有任何一个能写公开域。
-另外账号侧还有 `kuolie_in_qzone_write_whitelist: false`（写白名单没进）。
-
-所以 v1.4.0 里那个「投稿到空友爱看」的开关**已经删掉了** —— 既然进不去，留着只会让人误以为能进。
-本插件发出去的，就是**自己 QQ 空间里的说说**（访客进空间能看到，仅此而已）。
-
 > 想要带图：把 `imageRatio` 调大（`0` 只发文字，`1` 只发带图，`0.5` 一半一半），
-> 图源优先用 `dsh-meme` 的表情包图库；
+> 图源优先用 `dsh-meme` 的表情包图库，此插件支持导入本地图片；
 > **没装 `dsh-meme`** 的话，改用 `localImageDir` 指向一个本地图片文件夹，
 > 插件会从里面（往下最多 2 层）随机挑一张。
 
