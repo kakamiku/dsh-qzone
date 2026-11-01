@@ -49,7 +49,7 @@ import { collectNewsMaterial, pickLocalImage } from './sources.js';
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.5.0';
+export const version = '1.5.1';
 const PLUGIN_VERSION = version; // 挂载时打进日志，方便确认跑的是哪版
 
 // ---------------------------------------------------------------------------

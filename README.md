@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="icon.svg" width="96" height="96" alt="大肥鱼 · QQ 空间动态">
+  <img src="icon.png" width="96" height="96" alt="大肥鱼 · QQ 空间动态">
 </p>
 
 <p align="center">
@@ -322,6 +322,23 @@ NapCat 的 `send_qzone_msg` 内部按 **有没有图片** 走两条互斥的路�
 | `~/.dsh/media/onebot/qzone-replytest` | 回评论 |
 
 日志里 `"writer":"model"` 表示模型写的，`"fallback"` 表示走了兜底模板。
+
+---
+
+## 特别鸣谢
+
+这个插件能站在这儿，全靠下面这些项目 —— 没有它们就只是几行空气：
+
+| 项目 | 做了什么 |
+| --- | --- |
+| [`dsh-onebot-qq`](https://github.com/mario841859784/dsh-onebot) | **硬需求**。QQ 通道（OneBot 11）。本插件没有自己的 QQ 登录能力，发空间、点赞、评论全靠它那条 OneBot 连接 —— 凭据也是从它那儿读的，不抄第二份 |
+| [`dsh-bili-whale`](https://github.com/Alterssss/dsh-bili-whale) | B 站素材来源（读它日记里的「## 看过」表），顺带贡献了「喜欢什么 / 讨厌什么」那套偏好，本插件的新闻筛选也能沿用 |
+| [`dsh-meme`](https://github.com/yyh-001/dsh-meme) | 表情包图库 —— 带图动态的默认图源 |
+| [`NapCatQQ`](https://github.com/NapNeko/NapCatQQ) | QQ 空间那一整套 action 的实际实现（`send_qzone_msg` / `get_qzone_feeds` / `comment_qzone` / `like_qzone` …），以及那些关于「空友爱看」的一手实测结论 |
+| [`DeepSeek Harness`](https://github.com/deepseek-ai) | 插件平台本身：Loader、schema、设置页的 slot 机制、Typert Remote，都是它给的 |
+| [`cordis`](https://github.com/cordisjs/cordis) | 插件的运行时底座 |
+
+也谢谢 [@kakamiku](https://github.com/kakamiku) —— 主人。需求、拍板、实测、挨骂，都是她的。
 
 ---
 
