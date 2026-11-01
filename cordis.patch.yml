@@ -1,0 +1,28 @@
+# dsh-qzone —— DSH bundle patch
+#
+# 插件挂载声明：把本插件插进 profile 的配置树。
+#
+# 两种装法：
+#   A) 当 bundle 装（推荐，装完就生效，不用手改 YAML）：
+#        在 profile 的 package.json 里加两处
+#          "dependencies": { "dsh-qzone": "github:kakamiku/dsh-qzone" }
+#          "dsh": { "profile": { "bundles": ["dsh-qzone"] } }
+#        宿主会自己读本文件（package.json 的 dsh.bundle.patch 指向这里）。
+#
+#   B) 当普通依赖装（不写进 dsh.profile.bundles 时，本文件不会被自动加载）：
+#        在 profile 的 cordis.patch.yml 里手写同样的一行 insert：
+#          - insert:
+#              - id: dsh-qzone
+#                name: 'dsh-qzone'
+#        配置（config）另写一条同 id 的顶层行 —— insert 块里的 config 不可寻址，
+#        设置页会写不进去。
+#
+# ⚠️ 同一个插件文件**只能插一次**。重复插入同一个插件文件会双实例注册 → 崩溃循环。
+#    A 和 B 选一个就行，别两个都上。
+#
+# `name:` 必须与安装后的**包名**完全一致（这里是 dsh-qzone），
+# 否则表现为「装上了但设置页 404」。
+
+- insert:
+    - id: dsh-qzone
+      name: 'dsh-qzone'

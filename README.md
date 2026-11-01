@@ -31,23 +31,38 @@
 
 ## 装法
 
-插件本体是纯 Host 插件（无 UI、无构建步骤），装完还要在 profile 的 `cordis.patch.yml` 里插一行。
+插件本体是纯 Host 插件（无 UI、无构建步骤）。包自带 `cordis.patch.yml`，
+把插件插进 profile 的配置树 —— 装法有两条，**选一条就行，别两条都上**。
 
-### 1. 装包
+### A. 当 bundle 装（推荐，装完就生效）
+
+profile 的 `package.json` 里加两处：
+
+```jsonc
+{
+  "dependencies": {
+    "dsh-qzone": "github:kakamiku/dsh-qzone"
+  },
+  "dsh": {
+    "profile": {
+      "bundles": ["dsh-qzone"]     // ← 加进去，宿主才会读插件自带的 cordis.patch.yml
+    }
+  }
+}
+```
+
+然后：
 
 ```bash
-# 在 profile 目录（~/.dsh/profiles/<profile>/）的 package.json 里加一行：
-"dsh-qzone": "github:kakamiku/dsh-qzone"
-
-# 然后让 DSH 装它
 dsh plugin add dsh-qzone
 ```
 
-`github:` 简写是 DSH 官方支持的安装规格（见 `install-spec.js`），会走 `git ls-remote` 预检 + pnpm 安装。
+`github:` 简写是 DSH 官方支持的安装规格（见 `install-spec.js`），
+会走 `git ls-remote` 预检 + pnpm 安装。
 
-### 2. 插一行 patch
+### B. 当普通依赖装（不写进 `dsh.profile.bundles` 时，插件自带的 patch 不会被读）
 
-在 profile 的 `cordis.patch.yml` 里：
+在 profile 的 `cordis.patch.yml` 里手写一行 insert：
 
 ```yaml
 - insert:
@@ -55,7 +70,8 @@ dsh plugin add dsh-qzone
       name: 'dsh-qzone'
 ```
 
-再补一个同 id 的顶层条目写配置：
+再补一个同 id 的顶层条目写配置（**insert 块里的 config 不可寻址**，
+设置页会写不进去）：
 
 ```yaml
 - id: dsh-qzone
@@ -63,9 +79,9 @@ dsh plugin add dsh-qzone
     enabled: true
 ```
 
-> ⚠️ **不要**把 dsh-qzone 放进 `dsh.profile.bundles`。
-> 本包**没有** `dsh.bundle.patch` 字段，就是为了让宿主只插这一行；
-> 两边都插会双插入 → 崩溃循环。
+> ⚠️ **同一个插件文件只能插一次。**
+> 重复插入同一个插件文件 = 双实例注册 = 崩溃循环。
+> A 和 B 选一个，别两个都上。
 
 ### 3. 依赖
 

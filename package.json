@@ -24,8 +24,14 @@
     "README.md",
     "LICENSE",
     "icon.svg",
+    "cordis.patch.yml",
     "locale/"
   ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "keywords": [
     "dsh-plugin",
     "dsh-qzone",

@@ -40,6 +40,9 @@ import { DatabaseSync } from 'node:sqlite';
 
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
+/** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
+export const version = '1.2.0';
+const PLUGIN_VERSION = version;
 
 // ---------------------------------------------------------------------------
 // 宿主依赖（都是 optional peer；拿不到就降级，插件照常挂载）
@@ -1577,7 +1580,8 @@ async function runReplyInner(deps, options = {}) {
       const cuin = String(c?.uin ?? '');
       // comment_uin 必须是正整数形式的 QQ 号，上游不认别的
       if (!/^[1-9][0-9]{0,19}$/.test(cuin)) continue;
-      // 自己留的评论默认不回（自己跟自己对话没意思）
+      // 自己留的评论默认不回（自己跟自己对话没意思）；
+      // replySkipSelf: false 时才回（自测用）。
       if (config.replySkipSelf !== false && cuin === String(config.botQQ ?? '')) continue;
       const key = tid + '|' + cid;
       if (social.replied[key] !== undefined) continue;
@@ -1943,7 +1947,7 @@ export function apply(ctx, config) {
   const state = readState();
   saveState(state);
 
-  log('info', `挂载：url=${url} botQQ=${botQQ || '?'} limit=${dailyLimit}/天 ugc_right=${ugcRight} withImage=${withImage} 定时=${scheduleEnabled ? scheduleHours.join(',') : '关'}`);
+  log('info', `挂载：v${PLUGIN_VERSION} url=${url} botQQ=${botQQ || '?'} limit=${dailyLimit}/天 ugc_right=${ugcRight} withImage=${withImage} 定时=${scheduleEnabled ? scheduleHours.join(',') : '关'}`);
   log('info', `社交互动：好友动态=${socialEnabled ? `赞≤${socialLikeLimit}/评≤${socialCommentLimit}@${socialHours.join(',')}` : '关'} 回评论=${replyEnabled ? `≤${replyDailyLimit}/天 每${Math.round(replyIntervalMs / 60000)}分钟` : '关'}`);
 
   // ---- OneBot 连接 ----
