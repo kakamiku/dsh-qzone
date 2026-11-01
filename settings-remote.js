@@ -663,3 +663,4 @@ else {
 
 export default QzoneSettingsService;
 export { QzoneSettingsService };
+// 协议模块定位：裸 specifier -> 宿主安装目录绝对路径 -> 进程级 globalThis 缓存（见 loadProtocol）。
