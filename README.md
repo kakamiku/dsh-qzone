@@ -114,6 +114,7 @@ dsh plugin add dsh-qzone
 | `replyEnabled` | `true` | 总开关 |
 | `replyIntervalMs` | `1800000` | 每隔多久查一次有没有新评论（毫秒，最小 5 分钟） |
 | `replyDailyLimit` | `5` | 每天最多回几条 |
+| `replySkipSelf` | `true` | 要不要回**自己**留的评论？默认不回（自己跟自己对话没意思） |
 
 ### 凭据
 

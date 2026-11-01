@@ -1443,12 +1443,17 @@ async function runSocialInner(deps, options = {}) {
   const liked = [];
   const commented = [];
   const planned = [];
+  // 额度预算：干跑时 liked/commented 不会入账，得单独用预算卡住上限，
+  // 否则干跑会把能点的全点一遍（真实跑的时候 liked.length 才会涨）。
+  let likeBudget = config.socialLikeLimit - social.likeCount;
+  let commentBudget = config.socialCommentLimit - social.commentCount;
   for (const post of picked) {
-    const wantLike = social.likeCount + liked.length < config.socialLikeLimit;
-    const wantComment = social.commentCount + commented.length < config.socialCommentLimit;
+    const wantLike = likeBudget > 0;
+    const wantComment = commentBudget > 0;
     if (!wantLike && !wantComment) break;
     const seen = social.seen[post.tid] ?? {};
     if (wantLike && seen.liked !== true) {
+      likeBudget -= 1;
       const item = { tid: post.tid, uin: post.uin, action: 'like' };
       if (!dryRun) {
         try {
@@ -1466,6 +1471,7 @@ async function runSocialInner(deps, options = {}) {
     if (wantComment && seen.commented !== true) {
       const written = await writer(buildCommentPrompt(post), log);
       if (written !== null) {
+        commentBudget -= 1;
         if (!dryRun) {
           try {
             await commentFriendPost(client, post, written.text);
@@ -1496,9 +1502,11 @@ async function runSocialInner(deps, options = {}) {
     saveState(fresh);
   }
 
-  const message = `点了 ${liked.length} 个赞，评论了 ${commented.length} 条。`;
+  const likeCount = dryRun ? planned.filter(p => p.action === 'like').length : liked.length;
+  const commentCount = dryRun ? planned.filter(p => p.action === 'comment').length : commented.length;
+  const message = `点了 ${likeCount} 个赞，评论了 ${commentCount} 条。`;
   log('info', '好友动态互动：' + message + (dryRun ? '（预演）' : ''));
-  return { ok: liked.length + commented.length > 0, dryRun, liked, commented, planned, message };
+  return { ok: likeCount + commentCount > 0, dryRun, liked, commented, planned, message };
 }
 
 /**
@@ -1545,8 +1553,10 @@ async function runReplyInner(deps, options = {}) {
 
   const replied = [];
   const planned = [];
+  // 干跑时 replied 不入账，额度得单独用预算卡（跟 runSocialInner 一个道理）
+  let replyBudget = config.replyDailyLimit - social.replyCount;
   for (const p of posts) {
-    if (social.replyCount + replied.length >= config.replyDailyLimit) break;
+    if (replyBudget <= 0) break;
     const tid = typeof p?.tid === 'string' ? p.tid : '';
     if (tid === '') continue;
     const cmtNum = Number(p?.comment_num);
@@ -1561,17 +1571,20 @@ async function runReplyInner(deps, options = {}) {
     }
     const comments = Array.isArray(detail?.comments) ? detail.comments : [];
     for (const c of comments) {
-      if (social.replyCount + replied.length >= config.replyDailyLimit) break;
+      if (replyBudget <= 0) break;
       const cid = String(c?.comment_id ?? '');
       if (cid === '') continue;
       const cuin = String(c?.uin ?? '');
       // comment_uin 必须是正整数形式的 QQ 号，上游不认别的
       if (!/^[1-9][0-9]{0,19}$/.test(cuin)) continue;
+      // 自己留的评论默认不回（自己跟自己对话没意思）
+      if (config.replySkipSelf !== false && cuin === String(config.botQQ ?? '')) continue;
       const key = tid + '|' + cid;
       if (social.replied[key] !== undefined) continue;
 
       const written = await writer(buildReplyPrompt(p, c), log);
       if (written === null) continue;
+      replyBudget -= 1;
       if (!dryRun) {
         try {
           await replyToComment(client, { tid, uin: config.botQQ }, c, written.text);
@@ -1597,9 +1610,10 @@ async function runReplyInner(deps, options = {}) {
     saveState(fresh);
   }
 
-  const message = `回了 ${replied.length} 条评论。`;
+  const replyCount = dryRun ? planned.length : replied.length;
+  const message = `回了 ${replyCount} 条评论。`;
   log('info', '回评论：' + message + (dryRun ? '（预演）' : ''));
-  return { ok: replied.length > 0, dryRun, replied, planned, message };
+  return { ok: replyCount > 0, dryRun, replied, planned, message };
 }
 
 // ---------------------------------------------------------------------------
@@ -1799,6 +1813,8 @@ export const Config = !z ? undefined : z.object({
   replyIntervalMs: z.natural().default(1800000).extra('volatile', true),
   /** 每天最多回几条评论。 */
   replyDailyLimit: z.natural().default(5).extra('volatile', true),
+  // 要不要回**自己**留的评论？默认不回（自己跟自己对话没意思）
+  replySkipSelf: z.boolean().default(true).extra('volatile', true),
 });
 
 // ---------------------------------------------------------------------------
@@ -1922,6 +1938,7 @@ export function apply(ctx, config) {
   const replyEnabled = cfg(config?.replyEnabled, true) !== false;
   const replyIntervalMs = Math.max(300000, Number(cfg(config?.replyIntervalMs, 1800000)) || 1800000);
   const replyDailyLimit = Math.max(0, Math.min(50, Number(cfg(config?.replyDailyLimit, 5)) || 0));
+  const replySkipSelf = cfg(config?.replySkipSelf, true) !== false;
 
   const state = readState();
   saveState(state);
@@ -1968,7 +1985,7 @@ export function apply(ctx, config) {
       botQQ,
       socialEnabled, socialLikeLimit, socialCommentLimit,
       socialFeedCount, socialAllowUsers, socialBlockUsers,
-      replyEnabled, replyDailyLimit,
+      replyEnabled, replyDailyLimit, replySkipSelf,
     },
     state,
     getController,
