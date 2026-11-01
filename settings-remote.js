@@ -188,35 +188,74 @@ class FallbackRemoteError extends Error {
  *
  * 两条腿都失败才降级成普通 cordis 服务（网关发现不了，面板变只读）。
  */
+/** 协议模块是从哪儿弄到的（裸 specifier 还是宿主安装目录的绝对路径），只用于日志。 */
+let protocolSource = '';
+
+/**
+ * 进程级缓存：HMR 重载会重新求值本模块，但协议模块本身不该被重新解析 ——
+ * 一旦解析成功过一次，就把它留在 globalThis 上，后续重载直接复用同一个模块实例
+ * （类身份一致，宿主的 instanceof / Symbol 判断都不会错位）。
+ */
+const PROTOCOL_CACHE_KEY = Symbol.for('dsh-qzone.typertProtocol');
+
 async function loadProtocol() {
+  const cached = globalThis[PROTOCOL_CACHE_KEY];
+  if (cached) {
+    protocolSource = '进程缓存（上次解析到的同一个模块实例）';
+    return cached;
+  }
+
   try {
-    return await import('@deepseek-ai/dsh-typert-protocol');
+    const mod = await import('@deepseek-ai/dsh-typert-protocol');
+    protocolSource = '裸 specifier（宿主 loader 解析）';
+    globalThis[PROTOCOL_CACHE_KEY] = mod;
+    return mod;
   }
   catch { /* 换绝对路径再试 */ }
 
-  const exeDir = dirname(process.execPath ?? '');
-  const roots = [
-    join(exeDir, 'resources', 'app.asar', 'dsh'),
-    join(exeDir, 'resources', 'app'),
-    join(exeDir, 'resources'),
-    exeDir,
-  ];
+  // 宿主安装目录的各种可能布局：Electron 打包版 = <exe>/resources/app.asar/dsh，
+  // 源码跑 = <repo>/packages/...，宿主以 node 子进程跑 = <node>/../dsh ...
+  const anchors = [];
+  const push = (value) => {
+    if (value && !anchors.includes(value)) anchors.push(value);
+  };
+  try { push(process.execPath ? dirname(process.execPath) : ''); } catch { /* ignore */ }
+  try { push(process.argv[1] ? dirname(process.argv[1]) : ''); } catch { /* ignore */ }
+  try { push(process.cwd()); } catch { /* ignore */ }
+  const roots = [];
+  for (const anchor of anchors) {
+    push(join(anchor, 'resources', 'app.asar', 'dsh'));
+    push(join(anchor, 'resources', 'app.asar'));
+    push(join(anchor, 'resources', 'app'));
+    push(join(anchor, 'dsh'));
+    push(anchor);
+    push(dirname(anchor));
+  }
+
+  const tried = [];
   for (const root of roots) {
     if (!root) continue;
     try {
       const req = createRequire(join(root, 'package.json'));
       const resolved = req.resolve('@deepseek-ai/dsh-typert-protocol');
-      return await import(pathToFileURL(resolved).href);
+      const mod = await import(pathToFileURL(resolved).href);
+      protocolSource = '绝对路径 ' + resolved;
+      globalThis[PROTOCOL_CACHE_KEY] = mod;
+      return mod;
     }
-    catch { /* 下一个候选目录 */ }
+    catch (reason) {
+      tried.push(root + ' → ' + (reason?.code ?? reason?.message ?? String(reason)).split('\n')[0]);
+    }
   }
+  diag('绝对路径也找不到。execPath=' + process.execPath + ' argv1=' + process.argv[1] + ' cwd=' + process.cwd()
+    + ' | 试过：' + tried.join(' ; '));
   return null;
 }
 
 const protocol = await loadProtocol();
 diag(protocol === null
   ? '@deepseek-ai/dsh-typert-protocol 解析不到 → 降级成普通 cordis 服务（网关发现不了 qzoneSettings）'
-  : '协议在位 → Typert Remote（网关可发现 qzoneSettings）');
+  : '协议在位 → Typert Remote（网关可发现 qzoneSettings），来源：' + (protocolSource || '?'));
 
 /**
  * RemoteError 统一出口：协议在位用宿主类（跨域识别按 isDSHRemoteError），否则降级类。

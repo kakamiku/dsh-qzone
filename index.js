@@ -41,8 +41,8 @@ import { DatabaseSync } from 'node:sqlite';
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.3.1';
-const PLUGIN_VERSION = version;
+export const version = '1.3.2';
+const PLUGIN_VERSION = version; // 挂载时打进日志，方便确认跑的是哪版
 
 // ---------------------------------------------------------------------------
 // 宿主依赖（都是 optional peer；拿不到就降级，插件照常挂载）
