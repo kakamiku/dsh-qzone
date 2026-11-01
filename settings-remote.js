@@ -68,8 +68,9 @@ export const REMOTE_EFFECT = 'restart';
  */
 export const SETTINGS_GROUPS = {
   post: [
-    'dailyLimit', 'scheduleEnabled', 'scheduleHours', 'scheduleIntervalMs',
-    'withImage', 'ugcRight', 'writerPrompt', 'defaultSource', 'writerTimeoutMs',
+    'dailyLimit', 'scheduleEnabled', 'scheduleAt', 'scheduleIntervalMs',
+    'withImage', 'publishToPublicFeed', 'ugcRight', 'writerPrompt', 'defaultSource',
+    'newsLimit', 'newsFeeds', 'localImageDir', 'writerTimeoutMs',
   ],
   social: [
     'socialEnabled', 'socialHours', 'socialPollIntervalMs', 'socialLikeLimit',
@@ -85,12 +86,16 @@ export const SCHEMA_DEFAULTS = {
   // --- 发动态 ---
   dailyLimit: 3,
   scheduleEnabled: true,
-  scheduleHours: [10, 14, 19],
+  scheduleAt: ['10:00', '14:00', '19:00'],
   scheduleIntervalMs: 60000,
   withImage: false,
+  publishToPublicFeed: false,
   ugcRight: 1,
   writerPrompt: '',
   defaultSource: 'auto',
+  newsLimit: 6,
+  newsFeeds: [],
+  localImageDir: '',
   writerTimeoutMs: 120000,
   // --- 好友动态 ---
   socialEnabled: true,
@@ -122,24 +127,27 @@ export const ALL_KEYS = Object.values(SETTINGS_GROUPS).flat();
 
 /** 枚举键的取值集合。 */
 export const ENUM_KEYS = {
-  defaultSource: ['auto', 'chat', 'bili'],
+  defaultSource: ['auto', 'chat', 'bili', 'news'],
 };
 /** 数字键（区间见 NUMBER_RANGE）。 */
 export const NUMBER_KEYS = [
-  'dailyLimit', 'scheduleIntervalMs', 'writerTimeoutMs',
+  'dailyLimit', 'scheduleIntervalMs', 'writerTimeoutMs', 'newsLimit',
   'socialPollIntervalMs', 'socialLikeLimit', 'socialCommentLimit', 'socialFeedCount',
   'replyIntervalMs', 'replyDailyLimit',
 ];
 /** 数字数组键（元素是 0~23 的整点小时）。 */
-export const NUMBER_ARRAY_KEYS = ['scheduleHours', 'socialHours'];
+export const NUMBER_ARRAY_KEYS = ['socialHours'];
+/** 时刻数组键（元素是 HH:MM 字符串，精确到分钟）。 */
+export const TIME_ARRAY_KEYS = ['scheduleAt'];
 /** 布尔键。 */
 export const BOOLEAN_KEYS = [
-  'enabled', 'scheduleEnabled', 'withImage', 'socialEnabled', 'replyEnabled', 'replySkipSelf',
+  'enabled', 'scheduleEnabled', 'withImage', 'publishToPublicFeed',
+  'socialEnabled', 'replyEnabled', 'replySkipSelf',
 ];
 /** 字符串键。 */
-export const STRING_KEYS = ['writerPrompt'];
-/** 字符串数组键（QQ 号列表）。 */
-export const STRING_ARRAY_KEYS = ['ownerUsers', 'socialAllowUsers', 'socialBlockUsers'];
+export const STRING_KEYS = ['writerPrompt', 'localImageDir'];
+/** 字符串数组键（QQ 号列表 / RSS 地址列表）。 */
+export const STRING_ARRAY_KEYS = ['ownerUsers', 'socialAllowUsers', 'socialBlockUsers', 'newsFeeds'];
 /** 空间动态可见范围（NapCat 的 ugc_right）。 */
 export const UGC_RIGHTS = [1, 4, 16, 64, 128];
 
@@ -151,6 +159,7 @@ export const NUMBER_RANGE = {
   dailyLimit: [1, 20],
   scheduleIntervalMs: [15000, 3600000],
   writerTimeoutMs: [15000, 1800000],
+  newsLimit: [1, 20],
   socialPollIntervalMs: [0, 86400000],
   socialLikeLimit: [0, 50],
   socialCommentLimit: [0, 50],
@@ -215,21 +224,27 @@ async function loadProtocol() {
 
   // 宿主安装目录的各种可能布局：Electron 打包版 = <exe>/resources/app.asar/dsh，
   // 源码跑 = <repo>/packages/...，宿主以 node 子进程跑 = <node>/../dsh ...
+  //
+  // ⚠️ anchors 只进不出、roots 只进不出：**别把新候选塞回 anchors**。
+  //    之前 push() 写的是 anchors，而 for (const anchor of anchors) 又在遍历
+  //    anchors —— 每加一个候选就多 6 个候选，for-of 走的是活动数组，
+  //    于是永远跑不完（裸 specifier 一失败就死循环，插件整个 fiber 卡住）。
   const anchors = [];
-  const push = (value) => {
-    if (value && !anchors.includes(value)) anchors.push(value);
-  };
-  try { push(process.execPath ? dirname(process.execPath) : ''); } catch { /* ignore */ }
-  try { push(process.argv[1] ? dirname(process.argv[1]) : ''); } catch { /* ignore */ }
-  try { push(process.cwd()); } catch { /* ignore */ }
   const roots = [];
+  const pushRoot = (value) => {
+    if (value && !roots.includes(value)) roots.push(value);
+  };
+  try { anchors.push(dirname(process.execPath)); } catch { /* ignore */ }
+  try { anchors.push(dirname(process.argv[1])); } catch { /* ignore */ }
+  try { anchors.push(process.cwd()); } catch { /* ignore */ }
   for (const anchor of anchors) {
-    push(join(anchor, 'resources', 'app.asar', 'dsh'));
-    push(join(anchor, 'resources', 'app.asar'));
-    push(join(anchor, 'resources', 'app'));
-    push(join(anchor, 'dsh'));
-    push(anchor);
-    push(dirname(anchor));
+    if (!anchor) continue;
+    pushRoot(join(anchor, 'resources', 'app.asar', 'dsh'));
+    pushRoot(join(anchor, 'resources', 'app.asar'));
+    pushRoot(join(anchor, 'resources', 'app'));
+    pushRoot(join(anchor, 'dsh'));
+    pushRoot(anchor);
+    pushRoot(dirname(anchor));
   }
 
   const tried = [];
@@ -399,6 +414,15 @@ export function validatePatch(patch) {
     else if (NUMBER_ARRAY_KEYS.includes(key)) {
       if (Array.isArray(value) && value.every((item) => Number.isInteger(item) && item >= 0 && item <= 23)) clean[key] = value.slice();
       else issues.push(`${key} 必须是 0~23 的整点小时数组（如 [10, 14, 19]）`);
+    }
+    else if (TIME_ARRAY_KEYS.includes(key)) {
+      if (Array.isArray(value) && value.every((item) => typeof item === 'string' && /^\d{1,2}:\d{2}$/.test(item)
+        && Number(item.split(':')[0]) >= 0 && Number(item.split(':')[0]) <= 23
+        && Number(item.split(':')[1]) >= 0 && Number(item.split(':')[1]) <= 59)) clean[key] = value.map((item) => {
+        const [h, m] = item.split(':');
+        return String(Number(h)).padStart(2, '0') + ':' + String(Number(m)).padStart(2, '0');
+      });
+      else issues.push(`${key} 必须是 HH:MM 时刻数组（如 ['10:00', '14:37']）`);
     }
     else if (BOOLEAN_KEYS.includes(key)) {
       if (typeof value === 'boolean') clean[key] = value;

@@ -4,7 +4,7 @@
 
 <p align="center">
   <b>大肥鱼 · QQ 空间动态</b><br>
-  每天自动往 QQ 空间「空友爱看」发一条说说；<br>
+  每天自动往自己的 QQ 空间发一条说说；<br>
   顺手给好友的动态点个赞、留句评论，也回回别人留在我动态下面的留言。
 </p>
 
@@ -21,14 +21,18 @@
 
 | 功能 | 说明 |
 | --- | --- |
-| **发动态** | 每天最多 **3 条**（Asia/Shanghai 自然日，跨天自动重置），`ugc_right: 1` → 进「空友爱看」的公开动态流，纯文字。**写什么由你定**（`writerPrompt`） |
+| **发动态** | 每天最多 **3 条**（Asia/Shanghai 自然日，跨天自动重置），发到**本账号的 QQ 空间说说**（访客进空间就能看到），`ugc_right: 1` = 所有人可见。**写什么由你定**（`writerPrompt`） |
 | **好友动态点赞 + 评论** | **每 15 分钟扫一次**好友动态，**新动态一出来就点赞 + 留一句短评论**，不用等整点（同一条动态只互动一次） |
 | **回评论** | **每 5 分钟查一次**自己发过的动态底下有没有人留言，有就回一句（回过的不会重复回） |
 
 三个功能共用同一条素材链路：素材 → 脱敏 → 让模型按「大肥鱼」的人设写一句话 → 发出去。
 
-> 📦 装好之后，插件会出现在 DSH 的**插件页**里，点进它的页面就能调所有参数
-> （发布上限、发布时间、每天点几个赞、回几条评论、动态写什么……），**不用手改 YAML**。
+素材有三条来源：**当天的 QQ 对话**、**当天的 B 站视频**（要装 `dsh-bili-whale`）、
+**当天的新闻**（插件自带 RSS 抓取，**不用装任何插件**）。一条动态只用一个来源，绝不混用。
+
+> 📦 装好之后，插件会在 DSH 的**设置页**里多出一栏「QQ 空间」，
+> 点进去就能调所有参数（发布上限、发布时间、每天点几个赞、回几条评论、动态写什么……），
+> **不用手改 YAML**。插件页那边只留「包含的组件」和「来源信息」。
 
 ---
 
@@ -86,13 +90,23 @@ dsh plugin add dsh-qzone
 > 重复插入同一个插件文件 = 双实例注册 = 崩溃循环。
 > A 和 B 选一个，别两个都上。
 
-### 3. 依赖
+### 3. 依赖：哪些必要，哪些不必要
 
-| 插件 | 干嘛的 | 必需？ |
+**必要（不装就完全不能用）**
+
+| 插件 | 干嘛的 | 为什么必要 |
 | --- | --- | --- |
-| [`dsh-onebot-qq`](https://github.com/mario841859784/dsh-onebot) | QQ 通道（OneBot 11 / NapCat）。本插件自己也开一条 WS 出去，**凭据从 dsh-onebot 的配置里读**，不抄第二份 | 必需 |
-| [`dsh-meme`](https://github.com/yyh-001/dsh-meme) | 配图用的表情包图库（只有 `withImage: true` 才用得上） | 可选 |
-| [`dsh-bili-whale`](https://github.com/Alterssss/dsh-bili-whale) | B 站素材来源（读它日记里的「## 看过」表） | 可选 |
+| [`dsh-onebot-qq`](https://github.com/mario841859784/dsh-onebot) | QQ 通道（OneBot 11 / NapCat） | 本插件**没有自己的 QQ 登录能力**，发空间、点赞、评论全靠它那条 OneBot 连接。本插件自己会开一条 WS 出去，但**凭据是从 dsh-onebot 的配置里读的**，不抄第二份 —— 所以 dsh-onebot-qq 必须先装好、配好（`url` / `accessToken` / `botQQ`） |
+
+**非必要（不装也有对应替代，只是少一种玩法）**
+
+| 插件 | 干嘛的 | 不装会怎样 |
+| --- | --- | --- |
+| [`dsh-meme`](https://github.com/yyh-001/dsh-meme) | 配图用的表情包图库 | 配图改成从**你本地的图片文件夹**里随机挑（配置项 `localImageDir`）。两个都不想要就 `withImage: false`，纯文字发动态 |
+| [`dsh-bili-whale`](https://github.com/Alterssss/dsh-bili-whale) | B 站素材来源（读它日记里的「## 看过」表） | B 站这条素材来源就没了。**换成「新闻」来源顶上** —— 插件自带 RSS 抓取，不装任何插件也能拿到当天的新闻当素材 |
+
+> 一句话：**只有 `dsh-onebot-qq` 是硬需求**，其余两个都是「有更好、没有也能跑」。
+> 素材来源现在有四条：`chat`（当天 QQ 对话）、`bili`（B 站，需要 dsh-bili-whale）、`news`（新闻，插件自带抓取，**不需要任何插件**）、`auto`（自动挑）。
 
 ---
 
@@ -108,13 +122,17 @@ dsh plugin add dsh-qzone
 | `enabled` | `true` | 总开关 |
 | `dailyLimit` | `3` | 每天最多发几条 |
 | `ugcRight` | `1` | 空间权限：1 所有人可见 / 4 好友可见 / 16 部分好友可见 / 64 仅自己可见 / 128 部分好友不可见 |
-| `withImage` | `false` | 是否配表情包图（见下面的「带图 vs 不带图」） |
+| `withImage` | `false` | 是否配图（表情包，或本地图片文件夹里随机挑一张，见下面的「带图 vs 不带图」） |
+| `publishToPublicFeed` | `false` | 要不要进「空友爱看」的公开流。**实测：进不去**（公开流是服务端投稿+审核的产物，NapCat 没有投稿接口），所以这个开关的实际作用是「发完真去核验一次并如实回报」 |
 | `scheduleEnabled` | `true` | 定时发 |
-| `scheduleHours` | `[10,14,19]` | 每天这几个整点各发一条（Asia/Shanghai） |
+| `scheduleAt` | `['10:00','14:00','19:00']` | 每天这几个**时刻**各发一条，**精确到分钟**（Asia/Shanghai）。老配置的 `scheduleHours`（只到整点）仍然认，但新配置优先 |
 | `scheduleIntervalMs` | `60000` | 定时器轮询间隔 |
 | `writerTimeoutMs` | `120000` | 等模型回话的时限 |
-| **`writerPrompt`** | `''` | **动态发布内容**：你自己写的要求，会拼到写作提示词里。例：「多写深海里的事」「别提工作」「今天想emo一点」。留空 = 用默认人设 |
-| `defaultSource` | `auto` | 素材来源偏好：`auto` 自动挑 / `chat` 当天 QQ 对话 / `bili` 当天 B 站视频 |
+| **`writerPrompt`** | `''` | **动态发布内容**：你自己写的要求，会拼进写作提示词里。例：「多写深海里的事」「别提工作」「今天想emo一点」。留空 = 用默认人设 |
+| `defaultSource` | `auto` | 素材来源偏好：`auto` 自动挑 / `chat` 当天 QQ 对话 / `bili` 当天 B 站视频 / `news` 当天新闻（**不需要**装任何插件） |
+| `newsLimit` | `6` | 新闻素材最多取几条 |
+| `newsFeeds` | `[]` | 自定义新闻源（RSS 地址，一行一个）。留空 = 用插件自带的 6 个源 |
+| `localImageDir` | `''` | 没装 `dsh-meme`（没有表情包图库）时，从这个本地文件夹随机挑一张配图。例：`C:\Users\Lenovo\Pictures` |
 | `ownerUsers` | `[]` | 可以用口令手动触发的主人 QQ 号 |
 
 ### 好友动态：点赞 + 评论
@@ -150,13 +168,17 @@ dsh plugin add dsh-qzone
 
 ---
 
-## 设置页（插件页里直接调）
+## 设置页（在 DSH 的「设置」里调）
 
-插件带一个设置面板，装好后在 DSH 的**插件页 → dsh-qzone** 里能看到：
+插件带一个设置面板，装好后在 DSH 的**设置页 → QQ 空间**里能看到：
 
-- 四组参数：**发动态** / **好友动态** / **回评论** / **主人与开关**
+- 四组参数：**发动态** / **好友动态** / **回评论** / **主人与开关**（共 30 项）
 - 顶部一行是**今天已经用了多少额度**（发了几条、点了几个赞、评了几条、回了几条）
+- **保存按钮在页面最末尾**：改完参数往下一路看，滚到底再点保存
 - 改完点保存 → 宿主走自己的 `configEditor` 写回 profile 的 `cordis.patch.yml` → **热生效**，不用重启
+
+插件页那边（插件管理 → dsh-qzone）只剩宿主自带的「**包含的组件**」和「**来源信息**」，
+不再重复放一遍设置表单。
 
 设置页只暴露**行为参数**；OneBot 的地址 / 令牌 / 机器人 QQ 号在 `dsh-onebot-qq` 那边配，本插件自己去读。
 
@@ -165,6 +187,10 @@ dsh plugin add dsh-qzone
 > 面板的数据通道是 Typert Remote（命名空间 `qzoneSettings`）：
 > 浏览器 → 宿主网关 → `qzone-settings-remote` 行 → `configEditor.edit` → profile 的 `cordis.patch.yml`。
 > 三方（设置页 / 手改 YAML / 宿主原生设置页）写的是同一份配置，不会打架。
+>
+> 为什么设置页要自己画？宿主的设置页**不会**按 schema 自动给插件生成页面
+> （`dsh-settings` 只负责收集 schema，`autoGenerate` 只是给未来客户端留的接口位），
+> 所以插件用 `settings.section` 这个 slot 挂了自己的页。
 
 ---
 
@@ -172,9 +198,9 @@ dsh plugin add dsh-qzone
 
 ### 发动态
 
-1. **定时**：每天 `scheduleHours` 里的每个整点各发一条（到点检查，同一小时只试一次，成功与否都记账）。
+1. **定时**：每天 `scheduleAt` 里的每个时刻各发一条（**精确到分钟**，到点检查，同一时刻只试一次，成功与否都记账）。
 2. **工具**：`qq_post_qzone`（注册在插件作用域，宿主里**全局可见**，QQ 会话里的模型也能直接调）。
-   参数：`source`（`auto` / `chat` / `bili`）、`withImage`（可选）、`dryRun`（可选，只生成不发送）。
+   参数：`source`（`auto` / `chat` / `bili` / `news`）、`withImage`（可选）、`dryRun`（可选，只生成不发送）。
 3. **QQ 私聊口令**：主人在私聊里说「发条空间动态」「发表说说」之类，插件发完私聊回一句结果。
 
 ### 好友动态互动
@@ -201,6 +227,11 @@ dsh plugin add dsh-qzone
 - **`bili`**：日记 `## 看过` 表格（路径来自 `bili-whale.config.json` → `diary.dir`）。
   **今天没记录就回退到最近有记录的那天**，别让「今天没刷片」卡住发稿。
   `whale-log.jsonl` 只作补充（`at ?? ts`，UTC → 本地日）。
+- **`news`**：**插件自带**的 RSS 抓取（`sources.js`，零依赖，不用装任何插件）。
+  默认 6 个源：中国新闻网滚动新闻 / 界面新闻 / 36氪 / 钛媒体 / IT之家 / 少数派
+  （人民网和新华网的 RSS 实测已经冻结在 2025 年 / 2022 年，所以没用）。
+  单个源失败就跳过，全部失败就当没素材；按发布时间倒序、标题去重、滤掉广告条目。
+  自定义源用 `newsFeeds` 写 RSS 地址。
 
 私人日记 `whale-diary-private.md` 与日记正文（`## 给他的信` / `## 日常` / `## 想说`）**永不读取**。
 
@@ -227,11 +258,38 @@ NapCat 的 `send_qzone_msg` 内部按 **有没有图片** 走两条互斥的路�
 
 | | NapCat 走的路 | 结果 |
 | --- | --- | --- |
-| **纯文字**（`images: []`） | `QzoneApi.publishMsg` → RPC `PublishFeed`（`trpc.qzone.feeds_writer.FeedsWriter`，`0x9775`） | ✅ **进「空友爱看」**（空友爱看读的是配对的 `trpc.qzone.feeds_reader.FeedsReader` / `GetPublicRecomFeeds`） |
-| **带图**（`images: [路径]`） | `WebApi.publishQzoneMsg` → `emotion_cgi_publish_v6` | ⚠️ 经典说说，**不进「空友爱看」** |
+| **纯文字**（`images: []`） | `QzoneApi.publishMsg` → RPC `PublishFeed`（`trpc.qzone.feeds_writer.FeedsWriter`，`0x9775`） | 发到**自己空间的经典说说** |
+| **带图**（`images: [路径]`） | `WebApi.publishQzoneMsg` → `emotion_cgi_publish_v6` | 同样是**自己空间的经典说说**，只是能带图 |
 
-所以默认 `withImage: false`（纯文字 = 真进「空友爱看」）。
-想要表情包图的话，把 `withImage` 打开 —— 动态还是公开可见，但落在经典说说的列表里。
+两条路落库都是 `domain_type=1`（私有域），**都不在「空友爱看」的公开流里**。
+
+### 关于「空友爱看」（实测结论，别被文档骗了）
+
+「空友爱看」的公开流是**服务端投稿(contribute) + 审核**的产物：
+公开流里的帖子特征是 `domain_type=3` / `feed_biz_type=3` / `archivable_status=2(ARCHIVED)`，
+`union_id` 用 32 位 hex。而上面两条路落库都是 `domain_type=1` 的私有域说说，
+`archivable_status=NOT_ARCHIVED` —— **服务端强制降级，客户端参数改不动**。
+
+实测过三条路，全部进不去：
+
+| 试过的路 | 结果 |
+| --- | --- |
+| `send_qzone_msg` 纯文字 | 自己空间说说，公开流里没有 |
+| `send_qzone_msg` 带图 | 同上，公开流里没有 |
+| 手工裸调 gotrpc `PublishFeed` 带 `domain_type=3` + `feed_biz_type=3` | 服务器 `retcode=0` 收单，**回读被降级**成 `domain_type=1 / NOT_ARCHIVED` |
+| `forward_qzone_public_feed`（转发公开流的一条） | 把别人的内容搬进**自己**空间，仍是 `domain_type=1` |
+
+原因：投稿入口 `ContributeFeed` **只存在于 QQ 客户端**，PC Web 的 bundle 里搜 `contribute` 零命中；
+NapCat 9.9.33 的 28 个 QZone action 里也没有任何一个能写公开域。
+另外账号侧还有 `kuolie_in_qzone_write_whitelist: false`（写白名单没进）。
+
+所以本插件的做法是：**不吹**。打开 `publishToPublicFeed` 后，插件发完会真的
+`get_qzone_public_feeds` 回读一次公开流，核验这条到底进没进去，
+结果如实写进日志和回执（进不去就明说进不去），而不是嘴上说「已经进啦」。
+
+> 想要带图：把 `withImage` 打开，图源优先用 `dsh-meme` 的表情包图库；
+> **没装 `dsh-meme`** 的话，改用 `localImageDir` 指向一个本地图片文件夹，
+> 插件会从里面（往下最多 2 层）随机挑一张。
 
 ---
 
@@ -244,7 +302,7 @@ NapCat 的 `send_qzone_msg` 内部按 **有没有图片** 走两条互斥的路�
   "version": 1,
   "date": "2026-11-01",
   "count": 1,
-  "slots": [14],
+  "slots": ["14:00"],
   "posts": [{ "tid": "...", "at": "..." }],
   "history": {},
   "social": {

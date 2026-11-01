@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "QQ Zone Feed · Big Fat Fish",
-    "description": "Auto-posts to the QQ Zone public feed from today's chats or Bilibili videos; also likes and comments on friends' posts and replies to comments on the owner's own posts. Ships a settings page, so every parameter is editable from the plugin page."
+    "description": "Auto-posts to the QQ Zone from today's chats, Bilibili videos or news RSS; also likes and comments on friends' posts and replies to comments on the owner's own posts. Every parameter is editable from DSH Settings → QQ Zone."
   }
 }

@@ -1,14 +1,15 @@
 /**
- * dsh-qzone —— 给 QQ 空间「空友爱看」自动发说说。
+ * dsh-qzone —— 给 QQ 空间自动发说说。
  *
  * 干什么
  * ------
- * 每天最多发 3 条空间动态（Asia/Shanghai 自然日，跨天自动重置）。素材来自两处：
+ * 每天最多发 3 条空间动态（Asia/Shanghai 自然日，跨天自动重置）。素材来自三处：
  *   A. 当天的 QQ 私聊 / 群聊对话（读 ~/.dsh/sessions 下的 session.v4.jsonl.zstd）
  *   B. dsh-bili-whale 刷到的 B 站视频（读日记的「## 看过」表格 + whale-log.jsonl 补充）
+ *   C. 当天的新闻（插件自带 RSS 抓取，**不需要**装任何插件）
  *
  * ⚠️ 隔离：一条动态**只用一个来源**。A 组里不同私聊 / 不同群之间互不相通，
- *    绝不混用；B（视频）也不和 A 混。跨来源的对话内容不会出现在同一条动态里。
+ *    绝不混用；B（视频）、C（新闻）也不和 A 混。跨来源的内容不会出现在同一条动态里。
  * ⚠️ 隐私：素材进模型前先脱敏（QQ 号 / 群号 / 昵称不进提示词），模型产出
  *    再过一遍 scrubber（路径 / 密钥形状 / 模型名 / 数字串），不合格就换候选。
  *
@@ -16,16 +17,21 @@
  * ------
  * NapCat 的 OneBot 11 action `send_qzone_msg`：
  *   { content, images: string[], ugc_right: number }
- * `images` 为空 → NapCat 走 PublishFeed（新说说 / 空友爱看，**只有纯文字**）；
- * `images` 非空 → 走 emotion_cgi_publish_v6（经典说说，**能带图，但不在空友爱看流**）。
- * 这两条路在 NapCat 里是互斥的，所以：
- *   - 默认 `withImage = false` → 纯文字 + ugc_right=1 → 真正进「空友爱看」；
- *   - `withImage = true` → 带图 + ugc_right=1 → 经典说说，同样所有人可见，
- *     但**不会**出现在「空友爱看」的公开动态流里。
+ * `images` 为空 → NapCat 走 PublishFeed（纯文字）；
+ * `images` 非空 → 走 emotion_cgi_publish_v6（经典说说，能带图）。
+ *
+ * ⚠️ 关于「空友爱看」（实测结论，别再改错）：
+ *   「空友爱看」的公开流是**服务端投稿(contribute)+审核**的产物，
+ *   公开流里的帖子特征是 domain_type=3 / feed_biz_type=3 / archivable_status=2。
+ *   NapCat 9.9.33 **没有投稿接口**：上面两条路落库都是 domain_type=1 的
+ *   私有域经典说说，服务端强制降级，客户端参数（domain_type/feed_biz_type）
+ *   改不动；PC Web 端也没有投稿面板（入口 ContributeFeed 只在 QQ 客户端里）。
+ *   所以本插件发的是**本账号 QQ 空间里的说说**（访客进空间能看到），
+ *   `publishToPublicFeed` 打开后会在发完**真去公开流核验一次**并如实回报。
  *
  * 触发
  * ----
- *   1. 定时：每天 scheduleHours 里的每个整点各发一条（到点检查，只发一次）。
+ *   1. 定时：每天 scheduleAt 里的每个时刻各发一条（精确到分钟，到点检查，只发一次）。
  *   2. 工具：`qq_post_qzone`（插件级注册 → 全局可见，QQ 会话里模型也能叫）。
  *   3. QQ 私聊口令：主人私聊说「发条空间动态」→ 插件自己的 OneBot WS 收到
  *      消息事件 → 直接发一条并回一句结果（不依赖 onebot 插件的工具注册）。
@@ -37,11 +43,13 @@ import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
+// 素材来源扩展：新闻 RSS 抓取 + 本地图片文件夹（零依赖，单独一个文件）
+import { collectNewsMaterial, pickLocalImage } from './sources.js';
 
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.3.2';
+export const version = '1.4.0';
 const PLUGIN_VERSION = version; // 挂载时打进日志，方便确认跑的是哪版
 
 // ---------------------------------------------------------------------------
@@ -258,6 +266,45 @@ function cnHour(ms = Date.now()) {
 /** Asia/Shanghai 的 YYYY-MM-DD HH:mm。 */
 function cnStamp(ms = Date.now()) {
   return new Date(ms + CN_OFFSET_MS).toISOString().slice(0, 16).replace('T', ' ');
+}
+/** Asia/Shanghai 的 HH:mm（定时发布精确到分钟时用）。 */
+function cnMinuteOfDay(ms = Date.now()) {
+  return new Date(ms + CN_OFFSET_MS).toISOString().slice(11, 16);
+}
+
+/**
+ * 把「发布时间」配置解析成一组 HH:MM 字符串（升序、去重）。
+ *
+ * 新配置 scheduleAt: ['10:00', '14:37'] —— 精确到分钟。
+ * 旧配置 scheduleHours: [10, 14] —— 只有整点，等价于 ['10:00', '14:00']，
+ * 留着是为了老 profile 不用改也能跑（新配置优先）。
+ */
+function parseScheduleTimes(config) {
+  const out = [];
+  const add = (raw) => {
+    if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 23) {
+      const text = String(raw).padStart(2, '0') + ':00';
+      if (!out.includes(text)) out.push(text);
+      return;
+    }
+    if (typeof raw !== 'string') return;
+    const m = /^(\d{1,2})\s*[:：]\s*(\d{1,2})$/.exec(raw.trim());
+    if (!m) return;
+    const hour = Number(m[1]);
+    const minute = Number(m[2]);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return;
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return;
+    const text = String(hour).padStart(2, '0') + ':' + String(minute).padStart(2, '0');
+    if (!out.includes(text)) out.push(text);
+  };
+  const at = cfg(config?.scheduleAt, null);
+  if (Array.isArray(at)) for (const item of at) add(item);
+  if (out.length === 0) {
+    const hours = cfg(config?.scheduleHours, null);
+    if (Array.isArray(hours)) for (const item of hours) add(item);
+  }
+  out.sort();
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -917,7 +964,7 @@ function readState() {
   const state = {
     date: typeof raw.date === 'string' ? raw.date : today,
     count: Number.isFinite(raw.count) ? raw.count : 0,
-    slots: Array.isArray(raw.slots) ? raw.slots.map(Number) : [],
+    slots: Array.isArray(raw.slots) ? raw.slots.filter(v => typeof v === 'number' || typeof v === 'string') : [],
     posts: Array.isArray(raw.posts) ? raw.posts : [],
     history: raw.history && typeof raw.history === 'object' ? raw.history : {},
     social: normalizeSocial(raw.social, today),
@@ -985,7 +1032,9 @@ function buildWriterPrompt(source, materialLines, extra = '') {
   ];
   const sourceLine = source.kind === 'bili'
     ? '【素材来源】今天刷到的 B 站视频（就这一处来源，别提别的）。'
-    : '【素材来源】今天的一次聊天（就这一处来源，别提别的，也别说是跟谁聊的）。';
+    : source.kind === 'news'
+      ? '【素材来源】今天看到的新闻（就这一处来源，别提别的，也别编新闻里没有的细节）。'
+      : '【素材来源】今天的一次聊天（就这一处来源，别提别的，也别说是跟谁聊的）。';
   const rules = [
     '',
     sourceLine,
@@ -1188,6 +1237,38 @@ async function publishQzone(client, { content, images = [], ugcRight = UGC_RIGHT
     throw new Error('send_qzone_msg 没有返回 tid：' + JSON.stringify(data).slice(0, 300));
   }
   return { tid: String(tid), time: Number.isFinite(Number(time)) ? Number(time) : Date.now() };
+}
+
+/**
+ * 回读「空友爱看」公开流，核验刚发的那条到底进没进去。
+ *
+ * ⚠️ 实测结论（NapCat 9.9.33 + QQ 空间服务端）：
+ *   「空友爱看」是**服务端的投稿(contribute) + 审核**产物，
+ *   公开流里的帖子特征是 domain_type=3 / feed_biz_type=3 / archivable_status=2(ARCHIVED)。
+ *   `send_qzone_msg` 走的两条路（PublishFeed / emotion_cgi_publish_v6）落库都是
+ *   domain_type=1 的**私有域经典说说**，服务端强制降级，客户端参数改不动。
+ *   PC Web 端根本没有投稿面板（入口 ContributeFeed 只在 QQ 客户端里）。
+ *
+ * 所以这里不是「能不能开」的开关，而是**发完真去核验一次**，
+ * 让主人知道到底进没进，而不是嘴上说说。
+ *
+ * @returns {Promise<'yes'|'no'|'unknown'>}
+ */
+async function verifyPublicFeed(client, tid) {
+  try {
+    const data = await client.call('get_qzone_public_feeds', {});
+    const feeds = Array.isArray(data?.feeds) ? data.feeds : [];
+    const needle = String(tid ?? '');
+    if (needle !== '') {
+      for (const feed of feeds) {
+        if (JSON.stringify(feed ?? {}).includes(needle)) return 'yes';
+      }
+    }
+    return 'no';
+  } catch (err) {
+    log('warn', '回读「空友爱看」失败（不影响发动态）：' + String(err?.message ?? err));
+    return 'unknown';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1689,6 +1770,9 @@ async function runOnceInner(deps, options = {}) {
   const source = options.source ?? (config.defaultSource ?? 'auto');
 
   // ---- 选素材（一次只用一个来源） ----
+  // auto 的优先顺序：B 站 → QQ 聊天 → 新闻。
+  // 新闻放最后当兜底：它**不需要**任何插件（自带 RSS 抓取），所以没装
+  // dsh-bili-whale、聊天又没料的时候，总能捞到当天的新闻当素材。
   let picked = null;
   if (source === 'bili' || source === 'auto') {
     const videos = await fillBiliTitles(collectBiliMaterial(today));
@@ -1711,6 +1795,17 @@ async function runOnceInner(deps, options = {}) {
       buckets.sort((a, b) => b.count - a.count);
       const bucket = buckets[state.count % buckets.length];
       picked = { kind: 'chat', label: bucket.chatId, lines: bucket.lines };
+    }
+  }
+  if (picked === null && (source === 'news' || source === 'auto')) {
+    // 新闻来源**不需要**任何插件：自带 RSS 抓取，没装 dsh-bili-whale 也有新知识。
+    const feeds = (cfg(config.newsFeeds, []) || []).map(String).filter(u => u !== '');
+    const news = await collectNewsMaterial({
+      limit: Math.max(1, Math.min(20, Number(cfg(config.newsLimit, 6)) || 6)),
+      feeds: feeds.length > 0 ? feeds.map(url => ({ id: url, name: url, url, kind: 'rss' })) : undefined,
+    });
+    if (news.lines.length > 0) {
+      picked = { kind: 'news', label: 'news', lines: news.lines };
     }
   }
   if (picked === null) {
@@ -1741,6 +1836,12 @@ async function runOnceInner(deps, options = {}) {
         ? ['happy', 'shy', 'daily']
         : ['daily', 'happy', 'shy'];
     imagePath = pickMeme(moods);
+    // 没装 dsh-meme（没有表情包图库）-> 退回到本地图片文件夹。
+    const localDir = String(cfg(config.localImageDir, '') ?? '').trim();
+    if (imagePath === null && localDir !== '') {
+      imagePath = pickLocalImage(localDir);
+      if (imagePath !== null) log('info', '用本地图片配图：' + imagePath);
+    }
     if (imagePath !== null) images.push(imagePath);
   }
 
@@ -1785,6 +1886,25 @@ async function runOnceInner(deps, options = {}) {
   }
 
   log('info', `已发空间动态 tid=${posted.tid} source=${picked.label} writer=${written.writer} image=${images.length > 0 ? 'yes' : 'no'}`);
+  // 「空友爱看」是可选项：开了才去公开流核验一次（见 verifyPublicFeed 的注释）。
+  const wantPublicFeed = cfg(config.publishToPublicFeed, false) === true;
+  let publicFeed = 'skipped';
+  if (wantPublicFeed) {
+    publicFeed = await verifyPublicFeed(client, posted.tid);
+    if (publicFeed === 'yes') log('info', `已进「空友爱看」：tid=${posted.tid}`);
+    else if (publicFeed === 'no') {
+      log('warn', `没能进「空友爱看」：tid=${posted.tid}。`
+        + 'QQ 空间的公开流是服务端「投稿 + 审核」的产物，NapCat 没有投稿接口，'
+        + '这条被服务端降级成自己空间里的经典说说了（访客进你空间还是看得到）。');
+    }
+  }
+  const publicNote = publicFeed === 'yes'
+    ? '，而且真的进了「空友爱看」'
+    : publicFeed === 'no'
+      ? '，但**没能**进「空友爱看」（QQ 空间公开流要服务端投稿+审核，NapCat 没这个接口，它被降级成普通说说了）'
+      : publicFeed === 'unknown'
+        ? '，「空友爱看」那边没核验成（回读失败）'
+        : '';
   return {
     ok: true,
     tid: posted.tid,
@@ -1793,9 +1913,8 @@ async function runOnceInner(deps, options = {}) {
     source: picked.label,
     writer: written.writer,
     withImage: images.length > 0,
-    message: images.length > 0
-      ? `发好啦（tid=${posted.tid}）——带图版是经典说说，不进「空友爱看」哦。`
-      : `发好啦（tid=${posted.tid}），已经进「空友爱看」啦。`,
+    publicFeed,
+    message: `发好啦（tid=${posted.tid}）${publicNote}。`,
   };
 }
 
@@ -1815,16 +1934,31 @@ export const Config = !z ? undefined : z.object({
   ownerUsers: z.array(z.string()).default([]).extra('volatile', true),
   /** 每天最多发几条。 */
   dailyLimit: z.natural().default(3).extra('volatile', true),
-  /** 空间动态查看权限：1=所有人可见（进「空友爱看」）/4=好友/16=部分好友/64=仅自己/128=部分好友不可见。 */
+  /** 空间动态查看权限：1=所有人可见 /4=好友/16=部分好友/64=仅自己/128=部分好友不可见。 */
   ugcRight: z.union([
     z.const(1), z.const(4), z.const(16), z.const(64), z.const(128),
   ]).default(1).extra('volatile', true),
-  /** 是否默认配表情包图。关掉 = 纯文字 = 真进「空友爱看」（带图走的是经典说说分支）。 */
+  /**
+   * 是否要进「空友爱看」的公开流。
+   *
+   * ⚠️ 实测：QQ 空间的公开流是**服务端投稿(contribute)+审核**的产物，
+   *    NapCat 9.9.33 没有投稿接口，发的内容一律落在自己空间的经典说说里
+   *    （服务端会强制降级成 domain_type=1）。PC Web 端也没有投稿面板。
+   *    所以这个开关的实际作用是：**发完之后真去公开流核验一次**，
+   *    结果写进日志和回执，不再嘴上说「已经进啦」。
+   */
+  publishToPublicFeed: z.boolean().default(false).extra('volatile', true),
+  /** 是否默认配表情包图（带图走经典说说分支，更好看但同样是私有域）。 */
   withImage: z.boolean().default(false).extra('volatile', true),
   /** 定时器开关。 */
   scheduleEnabled: z.boolean().default(true).extra('volatile', true),
-  /** 每天在这些整点各发一条（Asia/Shanghai）。 */
-  scheduleHours: z.array(z.natural()).default([10, 14, 19]).extra('volatile', true),
+  /**
+   * 每天在这些**时刻**各发一条，精确到分钟（Asia/Shanghai）。
+   * 例：['10:00', '14:37', '22:05']。
+   */
+  scheduleAt: z.array(z.string()).default(['10:00', '14:00', '19:00']).extra('volatile', true),
+  /** 旧版「整点」配置（只到小时）。留着是为了老 profile 不用改也能跑；新配置优先。 */
+  scheduleHours: z.array(z.natural()).default([]).extra('volatile', true),
   /** 定时器轮询间隔（毫秒）。 */
   scheduleIntervalMs: z.natural().default(60000).extra('volatile', true),
   /** 等模型回话的时限（毫秒）。 */
@@ -1835,10 +1969,19 @@ export const Config = !z ? undefined : z.object({
    * 留空 = 用插件默认的人设和规则。
    */
   writerPrompt: z.string().default('').extra('volatile', true),
-  /** 素材来源偏好：auto=自动挑 / chat=当天 QQ 聊天 / bili=当天 B 站视频。 */
+  /** 素材来源偏好：auto=自动挑 / chat=当天 QQ 聊天 / bili=当天 B 站视频 / news=当天新闻。 */
   defaultSource: z.union([
-    z.const('auto'), z.const('chat'), z.const('bili'),
+    z.const('auto'), z.const('chat'), z.const('bili'), z.const('news'),
   ]).default('auto').extra('volatile', true),
+  /** 新闻素材：最多取几条当写作素材。 */
+  newsLimit: z.natural().default(6).extra('volatile', true),
+  /** 新闻源：自定义 RSS 地址（留空 = 用插件自带的那几个）。 */
+  newsFeeds: z.array(z.string()).default([]).extra('volatile', true),
+  /**
+   * 本地图片文件夹：没装 dsh-meme（没有表情包图库）时，从这里随机挑一张配图。
+   * 例：`C:\Users\Lenovo\Pictures`。留空 = 不启用。
+   */
+  localImageDir: z.string().default('').extra('volatile', true),
   // --- 社交互动（点赞 / 评论 / 回评论） ---
   /** 好友动态点赞+评论总开关。 */
   socialEnabled: z.boolean().default(true).extra('volatile', true),
@@ -1955,7 +2098,9 @@ export const testing = {
   saveState,
   cnDate,
   cnHour,
+  cnMinuteOfDay,
   cnStamp,
+  parseScheduleTimes,
   normalizeSocial,
   pruneSocialState,
   listFriendPosts,
@@ -1964,6 +2109,7 @@ export const testing = {
   replyToComment,
   runSocialOnce,
   runReplyOnce,
+  runOnce,
   buildCommentPrompt,
   buildReplyPrompt,
   pickShortLine,
@@ -1972,6 +2118,12 @@ export const testing = {
 export function apply(ctx, config) {
   // 先把上一个实例拆掉（热重载会重新 apply，但旧实例不一定被清理）
   disposePreviousInstance();
+
+  // 这一页的设置表单由插件自己的客户端半边渲染（settings.section）。
+  // 告诉宿主「别给我自动生成」——宿主本来也不会自动生成，但语义上要声明清楚。
+  ctx.inject(['settings'], (child) => {
+    child.effect(() => child.settings.configure({ auto: false }, ctx.fiber));
+  });
 
   const enabled = cfg(config?.enabled, true) !== false;
   const endpoint = readOnebotEndpoint();
@@ -1982,8 +2134,11 @@ export function apply(ctx, config) {
   const dailyLimit = Math.max(1, Math.min(20, Number(cfg(config?.dailyLimit, 3)) || 3));
   const ugcRight = Number(cfg(config?.ugcRight, 1)) || 1;
   const withImage = cfg(config?.withImage, false) === true;
+  /** 是否要进「空友爱看」公开流（开了才发完核验一次）。 */
+  const publishToPublicFeed = cfg(config?.publishToPublicFeed, false) === true;
   const scheduleEnabled = cfg(config?.scheduleEnabled, true) !== false;
-  const scheduleHours = (cfg(config?.scheduleHours, [10, 14, 19]) || []).map(Number).filter(h => Number.isInteger(h) && h >= 0 && h <= 23);
+  /** 定时发布时间点（HH:MM，精确到分钟）。 */
+  const scheduleAt = parseScheduleTimes(config);
   const scheduleIntervalMs = Math.max(15000, Number(cfg(config?.scheduleIntervalMs, 60000)) || 60000);
   writerTimeoutMs = Math.max(15000, Number(cfg(config?.writerTimeoutMs, 120000)) || 120000);
   /** 动态发布内容：主人自己写的要求，拼到写作提示词里。 */
@@ -1991,8 +2146,14 @@ export function apply(ctx, config) {
   /** 素材来源偏好。 */
   const defaultSource = (() => {
     const v = String(cfg(config?.defaultSource, 'auto') ?? 'auto');
-    return (v === 'chat' || v === 'bili') ? v : 'auto';
+    return (v === 'chat' || v === 'bili' || v === 'news') ? v : 'auto';
   })();
+  /** 新闻素材条数。 */
+  const newsLimit = Math.max(1, Math.min(20, Number(cfg(config?.newsLimit, 6)) || 6));
+  /** 自定义新闻源（留空 = 用自带的那几个）。 */
+  const newsFeeds = (cfg(config?.newsFeeds, []) || []).map(String).filter(u => u !== '');
+  /** 本地图片文件夹（没装 dsh-meme 时的配图来源）。 */
+  const localImageDir = String(cfg(config?.localImageDir, '') ?? '').trim();
   const socialEnabled = cfg(config?.socialEnabled, true) !== false;
   const socialHours = (cfg(config?.socialHours, [11, 17, 21]) || []).map(Number).filter(h => Number.isInteger(h) && h >= 0 && h <= 23);
   /** 轮询间隔：0 = 关（只按 socialHours 定点跑）。 */
@@ -2013,7 +2174,7 @@ export function apply(ctx, config) {
   const state = readState();
   saveState(state);
 
-  log('info', `挂载：v${PLUGIN_VERSION} url=${url} botQQ=${botQQ || '?'} limit=${dailyLimit}/天 ugc_right=${ugcRight} withImage=${withImage} 定时=${scheduleEnabled ? scheduleHours.join(',') : '关'}`);
+  log('info', `挂载：v${PLUGIN_VERSION} url=${url} botQQ=${botQQ || '?'} limit=${dailyLimit}/天 ugc_right=${ugcRight} withImage=${withImage} 定时=${scheduleEnabled ? scheduleAt.join('/') : '关'}`);
   log('info', `社交互动：好友动态=${socialEnabled ? `赞≤${socialLikeLimit}/评≤${socialCommentLimit}@${socialHours.join(',')}${socialPollIntervalMs > 0 ? `+轮询${Math.round(socialPollIntervalMs / 60000)}分钟` : ''}` : '关'} 回评论=${replyEnabled ? `≤${replyDailyLimit}/天 每${Math.round(replyIntervalMs / 60000)}分钟` : '关'}`);
 
   // ---- OneBot 连接 ----
@@ -2051,8 +2212,9 @@ export function apply(ctx, config) {
   const deps = {
     client,
     config: {
-      dailyLimit, ugcRight, withImage,
+      dailyLimit, ugcRight, withImage, publishToPublicFeed,
       botQQ, writerPrompt, defaultSource,
+      newsLimit, newsFeeds, localImageDir,
       socialEnabled, socialLikeLimit, socialCommentLimit,
       socialFeedCount, socialAllowUsers, socialBlockUsers,
       socialMaxPerPoll, socialFreshHours,
@@ -2066,19 +2228,19 @@ export function apply(ctx, config) {
   // ---- 工具：qq_post_qzone ----
   const tool = makeTool({
     name: 'qq_post_qzone',
-    description: '发一条 QQ 空间动态（投稿到「空友爱看」的公开动态流）。'
-      + '素材来自当天的 QQ 私聊/群聊，或 dsh-bili-whale 刷到的 B 站视频；'
+    description: '发一条 QQ 空间动态（发到本账号的 QQ 空间说说，访客进空间就能看到）。'
+      + '素材来自当天的 QQ 私聊/群聊、dsh-bili-whale 刷到的 B 站视频，或插件自带的新闻 RSS；'
       + `每天最多 ${dailyLimit} 条，发满了就不要再调。`
-      + 'withImage=true 会带一张表情包，但 NapCat 会改走经典说说分支（不进「空友爱看」），默认别带图。',
+      + 'withImage=true 会带一张表情包图。',
     parameters: {
       source: {
         type: 'string',
-        enum: ['auto', 'chat', 'bili'],
-        description: '素材来源：auto=自动挑（默认）/chat=今天的 QQ 对话/bili=今天刷到的 B 站视频',
+        enum: ['auto', 'chat', 'bili', 'news'],
+        description: '素材来源：auto=自动挑（默认）/chat=今天的 QQ 对话/bili=今天刷到的 B 站视频/news=今天的新闻（不需要装插件）',
       },
       withImage: {
         type: 'boolean',
-        description: '是否配一张表情包图（默认不配；不配才是「空友爱看」那条路）',
+        description: '是否配一张图（默认不配）',
       },
       dryRun: {
         type: 'boolean',
@@ -2097,7 +2259,7 @@ export function apply(ctx, config) {
       if (isBusy('post')) return { ok: false, message: '发空间动态已经在跑了，不重复触发。' };
       const source = typeof args.source === 'string' ? args.source : 'auto';
       const result = await enqueue(() => runOnce(deps, {
-        source: ['auto', 'chat', 'bili'].includes(source) ? source : 'auto',
+        source: ['auto', 'chat', 'bili', 'news'].includes(source) ? source : 'auto',
         withImage: typeof args.withImage === 'boolean' ? args.withImage : undefined,
         dryRun: args.dryRun === true,
       }));
@@ -2304,14 +2466,15 @@ export function apply(ctx, config) {
 
   // ---- 定时器 ----
   let timer = null;
-  if (enabled && scheduleEnabled && scheduleHours.length > 0) {
+  if (enabled && scheduleEnabled && scheduleAt.length > 0) {
     timer = setInterval(() => {
-      const hour = cnHour();
-      if (!scheduleHours.includes(hour)) return;
+      // 精确到分钟：当前 Asia/Shanghai 的 HH:MM 命中发布时间点就发一次。
+      const slot = cnMinuteOfDay();
+      if (!scheduleAt.includes(slot)) return;
       const current = readState();
-      if (current.slots.includes(hour)) return;
-      // 这个整点只尝试一次：成功与否都记下来，避免同一小时内反复发
-      current.slots.push(hour);
+      if (current.slots.includes(slot)) return;
+      // 这个时间点只尝试一次：成功与否都记下来，避免同一分钟内反复发
+      current.slots.push(slot);
       saveState(current);
       deps.state = current;
       void enqueue(async () => {
@@ -2322,9 +2485,9 @@ export function apply(ctx, config) {
           warn('定时发动态失败：' + String(err?.message ?? err));
         }
       });
-    }, scheduleIntervalMs);
+    }, Math.min(scheduleIntervalMs, 30000));
     timer.unref?.();
-    log('info', `定时器已启动：每天 ${scheduleHours.join('/')} 点各检查一次（Asia/Shanghai）`);
+    log('info', `定时器已启动：每天 ${scheduleAt.join('/')} 各检查一次（Asia/Shanghai，精确到分钟）`);
   }
 
   // ---- 定时器：好友动态点赞 + 评论 ----

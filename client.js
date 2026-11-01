@@ -64,12 +64,16 @@ window.__ModuleLoader__.load({
 				fields: [
 					{ key: "dailyLimit", label: "每天最多发几条", type: "number", hint: "按 Asia/Shanghai 自然日算，跨天自动重置。" },
 					{ key: "scheduleEnabled", label: "定时发", type: "boolean", hint: "关掉就只在主人下口令或模型调工具时才发。" },
-					{ key: "scheduleHours", label: "每天几点发（本地时间）", type: "numberList", hint: "24 小时制的小时数，逗号分隔，例如 10, 14, 19。" },
+					{ key: "scheduleAt", label: "每天几点发（本地时间）", type: "timeList", hint: "24 小时制、精确到分钟，逗号分隔，例如 10:00, 14:37, 22:05。" },
 					{ key: "scheduleIntervalMs", label: "定时器轮询间隔（毫秒）", type: "number", hint: "多久检查一次「到点没」。默认 60000（1 分钟）。" },
-					{ key: "withImage", label: "是否配表情包图", type: "boolean", hint: "关 = 纯文字 = 真进「空友爱看」；开 = 带图走经典说说分支（能带图，但不在「空友爱看」流里）。" },
-					{ key: "ugcRight", label: "可见范围", type: "enum", options: [1, 4, 16, 64, 128], optionLabels: { 1: "所有人可见", 4: "仅好友可见", 16: "部分好友可见", 64: "仅自己可见", 128: "部分好友不可见" }, hint: "对应 NapCat 的 ugc_right。1 = 所有人可见（默认，也是进「空友爱看」的前提）。" },
+					{ key: "withImage", label: "是否配图", type: "boolean", hint: "开 = 发动态时带一张图（表情包，或本地图片文件夹里随机挑一张）。关 = 纯文字。" },
+					{ key: "publishToPublicFeed", label: "投稿到「空友爱看」", type: "boolean", hint: "开 = 发动态之后真去公开流核验一次，回执和日志如实写明进没进去。注意：QQ 空间的公开流是服务端投稿+审核的产物，NapCat 没有投稿接口，所以通常核验结果是「没进去」（动态本身还是发出去了，访客进你空间能看到）。" },
+					{ key: "ugcRight", label: "可见范围", type: "enum", options: [1, 4, 16, 64, 128], optionLabels: { 1: "所有人可见", 4: "仅好友可见", 16: "部分好友可见", 64: "仅自己可见", 128: "部分好友不可见" }, hint: "对应 NapCat 的 ugc_right。1 = 所有人可见（默认）。" },
 					{ key: "writerPrompt", label: "动态发布内容", type: "text", hint: "追加到写作提示里的自定义要求，例如「多写深海里的事」「别提工作」「今天想 emo 一点」。留空 = 用插件默认人设。" },
-					{ key: "defaultSource", label: "素材来源", type: "enum", options: ["auto", "chat", "bili"], optionLabels: { auto: "自动挑", chat: "当天的 QQ 对话", bili: "当天的 B 站视频" }, hint: "一条动态只用一个来源，绝不混用。" },
+					{ key: "defaultSource", label: "素材来源", type: "enum", options: ["auto", "chat", "bili", "news"], optionLabels: { auto: "自动挑", chat: "当天的 QQ 对话", bili: "当天的 B 站视频", news: "当天的新闻" }, hint: "一条动态只用一个来源，绝不混用。news 不需要装任何插件，插件自带 RSS 抓取。" },
+					{ key: "newsLimit", label: "新闻素材最多取几条", type: "number", hint: "只用 news 来源时生效，默认 6 条。" },
+					{ key: "newsFeeds", label: "自定义新闻源（RSS）", type: "stringList", hint: "每行一个 RSS/Atom 地址。留空 = 用插件自带的 6 个源。" },
+					{ key: "localImageDir", label: "本地图片文件夹", type: "text", hint: "没装 dsh-meme（没有表情包图库）时，从这里随机挑一张配图。例：C:\\Users\\Lenovo\\Pictures。留空 = 不启用。" },
 					{ key: "writerTimeoutMs", label: "等模型回话的时限（毫秒）", type: "number", hint: "超过这个时间还没写出来，就换兜底模板。" },
 				],
 			},
@@ -125,12 +129,16 @@ window.__ModuleLoader__.load({
 		var DEFAULTS = {
 			dailyLimit: 3,
 			scheduleEnabled: true,
-			scheduleHours: [10, 14, 19],
+			scheduleAt: ["10:00", "14:00", "19:00"],
 			scheduleIntervalMs: 60000,
 			withImage: false,
 			ugcRight: 1,
 			writerPrompt: "",
 			defaultSource: "auto",
+			newsLimit: 6,
+			newsFeeds: [],
+			localImageDir: "",
+			publishToPublicFeed: false,
 			writerTimeoutMs: 120000,
 			socialEnabled: true,
 			socialHours: [11, 17, 21],
@@ -171,6 +179,7 @@ window.__ModuleLoader__.load({
 			socialMaxPerPoll: [1, 20],
 			socialFreshHours: [0, 720],
 			socialFeedCount: [1, 50],
+			newsLimit: [1, 20],
 			replyIntervalMs: [60000, 86400000],
 			replyDailyLimit: [0, 50],
 			replyMaxPerPoll: [1, 20],
@@ -378,6 +387,7 @@ window.__ModuleLoader__.load({
 			"settings.title": "QQ 空间设置",
 			"settings.desc": "配置持久化为 profile 层 cordis.patch.yml 中 dsh-qzone 条目的 config 覆盖行，与手改 patch、宿主原生设置页同源。",
 			"settings.summary": "每天自动发 QQ 空间动态，还能给好友动态点赞评论、回自己动态下面的留言。",
+			"nav": "QQ 空间",
 			"settings.loading": "正在加载设置…",
 			"settings.reload": "重新加载",
 			"settings.reset": "恢复默认值",
@@ -422,6 +432,7 @@ window.__ModuleLoader__.load({
 			"settings.title": "QQ Zone settings",
 			"settings.desc": "Settings persist as the config override row of the dsh-qzone entry in the profile-layer cordis.patch.yml — the same source as hand-edited patches and the host's native settings page.",
 			"settings.summary": "Posts QQ Zone updates every day, likes and comments on friends' posts, and replies to comments under its own posts.",
+			"nav": "QQ Zone",
 			"settings.loading": "Loading settings…",
 			"settings.reload": "Reload",
 			"settings.reset": "Reset to defaults",
@@ -480,6 +491,7 @@ window.__ModuleLoader__.load({
 			".qz-title{font-size:16px;font-weight:600;margin:0}",
 			".qz-desc{color:var(--qz-fg-muted);font-size:12px;margin:4px 0 0}",
 			".qz-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}",
+			".qz-footer{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:16px;padding-top:12px;border-top:1px solid var(--dsh-border,#8883)}",
 			".qz-spacer{flex:1}",
 			".qz-meta{color:var(--qz-fg-muted);font-size:11px;border:1px solid var(--qz-border);border-radius:999px;padding:1px 8px}",
 			".qz-badge{color:var(--qz-fg-muted);font-size:11px;border:1px solid var(--qz-border);border-radius:999px;padding:0 8px}",
@@ -561,6 +573,7 @@ window.__ModuleLoader__.load({
 		function snapshotValueToDraft(field, value) {
 			if (field.type === "boolean") return value === true;
 			if (field.type === "numberList") return Array.isArray(value) ? value.join(", ") : "";
+			if (field.type === "timeList") return Array.isArray(value) ? value.join(", ") : "";
 			if (field.type === "stringList") return Array.isArray(value) ? value.join("\n") : "";
 			if (field.type === "number") return value === undefined || value === null ? "" : String(value);
 			return value === undefined || value === null ? "" : String(value);
@@ -606,6 +619,22 @@ window.__ModuleLoader__.load({
 			if (field.type === "stringList") {
 				return String(raw == null ? "" : raw).split(/\r?\n/).map(function (line) { return line.trim(); }).filter(function (line) { return line !== ""; });
 			}
+			if (field.type === "timeList") {
+				// HH:MM 列表，逗号 / 空格 / 换行分隔。非法就返回 null（= 校验不通过）。
+				var parts2 = String(raw == null ? "" : raw).split(/[\s,，、]+/).filter(function (part) { return part !== ""; });
+				var times = [];
+				for (var part2 of parts2) {
+					var m2 = /^(\d{1,2})\s*[:：]\s*(\d{1,2})$/.exec(part2);
+					if (!m2) return null;
+					var hh = Number(m2[1]);
+					var mm = Number(m2[2]);
+					if (!Number.isInteger(hh) || hh < 0 || hh > 23) return null;
+					if (!Number.isInteger(mm) || mm < 0 || mm > 59) return null;
+					var text2 = String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0");
+					if (times.indexOf(text2) === -1) times.push(text2);
+				}
+				return times;
+			}
 			return String(raw == null ? "" : raw);
 		}
 		function valueEquals(a, b) {
@@ -624,6 +653,11 @@ window.__ModuleLoader__.load({
 		/** 小时数组的行内校验：null = 合法。 */
 		function hourListInvalid(field, raw) {
 			if (field == null || field.type !== "numberList") return null;
+			return coerceValue(field, raw) === null ? "invalid" : null;
+		}
+		/** HH:MM 时刻数组的行内校验：null = 合法。 */
+		function timeListInvalid(field, raw) {
+			if (field == null || field.type !== "timeList") return null;
 			return coerceValue(field, raw) === null ? "invalid" : null;
 		}
 		/**
@@ -741,6 +775,21 @@ window.__ModuleLoader__.load({
 						},
 					});
 				}
+				else if (field.type === "timeList") {
+					control = h("input", {
+						type: "text",
+						className: "qz-input qz-input--number" + (invalid ? " qz-input--invalid" : ""),
+						value: String(value == null ? "" : value),
+						disabled: disabled,
+						placeholder: "10:00, 14:37, 22:05",
+						"aria-label": field.label,
+						"aria-invalid": invalid ? "true" : undefined,
+						onChange: function (event) { onChange(field, event.target.value); },
+						onBlur: function (event) {
+							if (typeof options.onValidate === "function") options.onValidate(field, event.target.value);
+						},
+					});
+				}
 				else if (field.type === "stringList") {
 					control = h("textarea", {
 						className: "qz-textarea",
@@ -782,7 +831,9 @@ window.__ModuleLoader__.load({
 				if (invalid) {
 					if (hintChildren.length > 0) hintChildren.push("；");
 					hintChildren.push(h("span", { className: "qz-hint--invalid" },
-						field.type === "numberList" ? "必须是 0~23 的整点小时，逗号分隔" : "必须是合法数字"));
+						field.type === "numberList" ? "必须是 0~23 的整点小时，逗号分隔"
+							: field.type === "timeList" ? "必须是 HH:MM 格式的时刻（00:00~23:59），逗号分隔"
+								: "必须是合法数字"));
 				}
 				return h("div", { className: "qz-field", key: field.key },
 					h("span", { className: "qz-label" }, field.label),
@@ -974,7 +1025,9 @@ window.__ModuleLoader__.load({
 						? numberRangeInvalid(field, nextValue) !== null
 						: field.type === "numberList"
 							? hourListInvalid(field, nextValue) !== null
-							: false;
+							: field.type === "timeList"
+								? timeListInvalid(field, nextValue) !== null
+								: false;
 					if (!stillInvalid) {
 						setInvalidKeys(invalidKeys.filter(function (key) { return key !== field.key; }));
 					}
@@ -987,7 +1040,9 @@ window.__ModuleLoader__.load({
 					? numberRangeInvalid(field, rawValue)
 					: field.type === "numberList"
 						? hourListInvalid(field, rawValue)
-						: null;
+						: field.type === "timeList"
+							? timeListInvalid(field, rawValue)
+							: null;
 				if (problem === null) {
 					if (invalidKeys.indexOf(field.key) < 0) return;
 					setInvalidKeys(invalidKeys.filter(function (key) { return key !== field.key; }));
@@ -1048,16 +1103,7 @@ window.__ModuleLoader__.load({
 					h("button", { className: "qz-btn", type: "button", disabled: busy, onClick: handleReload },
 						pick(t, "settings.reload", "重新加载")),
 					h("button", { className: "qz-btn", type: "button", disabled: busy, onClick: handleReset },
-						pick(t, "settings.reset", "恢复默认值")),
-					h("button", {
-						className: "qz-btn qz-btn--primary",
-						type: "button",
-						disabled: busy || dirtyCount === 0 || invalidKeys.length > 0,
-						title: invalidKeys.length > 0
-							? format(pick(t, "save.badNumber", "数字字段不合法：{keys}"), { keys: invalidKeys.length })
-							: dirtyCount === 0 ? pick(t, "save.noChangesTitle", "没有未保存的修改") : undefined,
-						onClick: save,
-					}, busy ? pick(t, "save.saving", "正在保存…") : pick(t, "save.submit", "保存设置"))),
+						pick(t, "settings.reset", "恢复默认值"))),
 				error === null ? null : h("div", { className: "qz-error" + (conflict ? " qz-error--conflict" : ""), role: "alert" },
 					pick(t, "status.error", "出错") + "：" + error),
 				notice === "" ? null : h("p", { className: "qz-notice" }, notice),
@@ -1074,7 +1120,21 @@ window.__ModuleLoader__.load({
 						onChange: handleChange,
 						onValidate: validateField,
 					});
-				}));
+				}),
+				// 保存按钮放在**末尾**：改完参数往下一路看，滚到底再点保存。
+				h("div", { className: "qz-footer" },
+					h("span", { className: "qz-spacer" }),
+					dirtyCount > 0 ? h("span", { className: "qz-badge qz-warn" },
+						format(pick(t, "save.dirtyBadge", "{count} 项未保存"), { count: dirtyCount })) : null,
+					h("button", {
+						className: "qz-btn qz-btn--primary",
+						type: "button",
+						disabled: busy || dirtyCount === 0 || invalidKeys.length > 0,
+						title: invalidKeys.length > 0
+							? format(pick(t, "save.badNumber", "数字字段不合法：{keys}"), { keys: invalidKeys.length })
+							: dirtyCount === 0 ? pick(t, "save.noChangesTitle", "没有未保存的修改") : undefined,
+						onClick: save,
+					}, busy ? pick(t, "save.saving", "正在保存…") : pick(t, "save.submit", "保存设置"))));
 		}
 		//#endregion
 
@@ -1106,19 +1166,13 @@ window.__ModuleLoader__.load({
 				console.warn("[dsh-qzone] qzoneSettings Remote 挂载后不可用，设置面板将只读");
 			}
 
-			ctx.slots.inject("plugins.bundle.config", function () { return ctx.slots.register(
-				{ name: "plugins.bundle.config", key: "dsh-qzone", locale: NS },
+			// DSH 的「设置」页左侧导航 = settings.section slot 的账本投影。
+			// 宿主没有「按 schema 自动生成插件设置页」的机制（dsh-settings 的
+			// autoGenerate 只是给未来客户端留的接口位），所以这一页得自己出。
+			// 插件管理页那边就不注册了 —— 那边只剩宿主自带的「包含的组件」和「来源信息」。
+			ctx.slots.inject("settings.section", function () { return ctx.slots.register(
+				{ name: "settings.section", id: "qzone", order: 25, label: function () { return t("nav"); }, locale: NS },
 				function (props) {
-					// summary：一行说明（列表页用）。
-					if (props != null && props.view === "summary") {
-						return pick(t, "settings.summary", "每天自动发 QQ 空间动态，还能给好友动态点赞评论、回自己动态下面的留言。");
-					}
-					// 宿主如果备好了通用表单（props.form），优先直接渲染它；
-					// 拿不到（当前宿主还没提供）才用自己的 Remote 表单。
-					var hostForm = props != null ? props.form : undefined;
-					if (React.isValidElement(hostForm)) return hostForm;
-					if (typeof hostForm === "function") return React.createElement(hostForm, null);
-					if (hostForm != null && typeof hostForm.render === "function") return React.createElement(hostForm.render, null);
 					if (remote === undefined) {
 						return React.createElement("div", { className: "qz-panel" },
 							React.createElement("p", { className: "qz-error", role: "alert" },
@@ -1148,6 +1202,7 @@ window.__ModuleLoader__.load({
 		exports.draftFromSnapshot = draftFromSnapshot;
 		exports.numberRangeInvalid = numberRangeInvalid;
 		exports.hourListInvalid = hourListInvalid;
+		exports.timeListInvalid = timeListInvalid;
 		exports.mergeOnConflict = mergeOnConflict;
 		exports.isConflictError = isConflictError;
 		exports.unwrap = unwrap;
