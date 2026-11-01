@@ -41,7 +41,7 @@ import { DatabaseSync } from 'node:sqlite';
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.3.0';
+export const version = '1.3.1';
 const PLUGIN_VERSION = version;
 
 // ---------------------------------------------------------------------------

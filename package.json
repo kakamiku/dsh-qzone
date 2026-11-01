@@ -1,6 +1,6 @@
 {
   "name": "dsh-qzone",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "QQ 空间「空友爱看」自动动态：每天最多 3 条（素材来自当天 QQ 私聊/群聊或 B 站），还会给好友动态点赞评论、回自己动态下面的留言；带设置页，参数在插件页里直接调",
   "icon": "icon.svg",
   "repository": {

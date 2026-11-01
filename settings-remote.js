@@ -34,8 +34,10 @@
  * 服务而不是炸掉插件加载（照抄 dsh-onebot/lib/settings-remote.js 的降级骨架）。
  */
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 
 /**
@@ -173,13 +175,45 @@ class FallbackRemoteError extends Error {
   }
 }
 
-let protocol = null;
-try {
-  protocol = await import('@deepseek-ai/dsh-typert-protocol');
+/**
+ * 协议模块的定位顺序（两条腿都要会走路）：
+ *
+ *   1. 裸 specifier —— 宿主 loader 解析得动时最省事。
+ *   2. 宿主安装目录里的绝对路径 —— profile 是装好的 Electron 应用，
+ *      `@deepseek-ai/dsh-typert-protocol` 只存在于宿主自己的 node_modules 里
+ *      （打包版在 `resources/app.asar/dsh/node_modules`），profile 的 node_modules
+ *      根本没有它。HMR 重载过一次之后宿主的解析缓存会被清掉，裸 specifier 就会
+ *      解析不到 —— 这时靠 createRequire 从宿主安装目录把真实文件路径捞出来，
+ *      再按 file:// 导入（同一个文件 => 同一个模块实例 => 类身份一致）。
+ *
+ * 两条腿都失败才降级成普通 cordis 服务（网关发现不了，面板变只读）。
+ */
+async function loadProtocol() {
+  try {
+    return await import('@deepseek-ai/dsh-typert-protocol');
+  }
+  catch { /* 换绝对路径再试 */ }
+
+  const exeDir = dirname(process.execPath ?? '');
+  const roots = [
+    join(exeDir, 'resources', 'app.asar', 'dsh'),
+    join(exeDir, 'resources', 'app'),
+    join(exeDir, 'resources'),
+    exeDir,
+  ];
+  for (const root of roots) {
+    if (!root) continue;
+    try {
+      const req = createRequire(join(root, 'package.json'));
+      const resolved = req.resolve('@deepseek-ai/dsh-typert-protocol');
+      return await import(pathToFileURL(resolved).href);
+    }
+    catch { /* 下一个候选目录 */ }
+  }
+  return null;
 }
-catch {
-  protocol = null;
-}
+
+const protocol = await loadProtocol();
 diag(protocol === null
   ? '@deepseek-ai/dsh-typert-protocol 解析不到 → 降级成普通 cordis 服务（网关发现不了 qzoneSettings）'
   : '协议在位 → Typert Remote（网关可发现 qzoneSettings）');
