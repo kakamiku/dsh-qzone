@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="QQ 空间动态 · 大肥鱼">
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6fc7f5"/>
+      <stop offset="1" stop-color="#2f7fd4"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#sea)"/>
+  <circle cx="104" cy="24" r="12" fill="#ffffff" opacity="0.22"/>
+  <circle cx="22" cy="104" r="16" fill="#ffffff" opacity="0.16"/>
+  <!-- 气泡：空间动态 -->
+  <path d="M30 30h68a10 10 0 0 1 10 10v34a10 10 0 0 1-10 10H62l-16 14v-14H30a10 10 0 0 1-10-10V40a10 10 0 0 1 10-10z"
+        fill="#ffffff" opacity="0.94"/>
+  <!-- 鲸鱼尾巴：出海的鱼 -->
+  <path d="M64 48c8 0 13 6 13 13 0 9-6 16-13 16s-13-7-13-16c0-7 5-13 13-13z" fill="#2f7fd4"/>
+  <path d="M64 48c-3-7-9-11-16-12 2 5 5 9 9 12-6 0-11 2-15 6 7-2 13-1 18 2z" fill="#2f7fd4"/>
+  <path d="M64 48c3-7 9-11 16-12-2 5-5 9-9 12 6 0 11 2 15 6-7-2-13-1-18 2z" fill="#2f7fd4"/>
+  <!-- 小水滴：大白饭 -->
+  <circle cx="46" cy="86" r="5" fill="#ffffff"/>
+  <circle cx="64" cy="92" r="3.5" fill="#ffffff" opacity="0.85"/>
+  <circle cx="80" cy="85" r="4" fill="#ffffff" opacity="0.7"/>
+</svg>

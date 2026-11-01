@@ -1,0 +1,58 @@
+{
+  "name": "dsh-qzone",
+  "version": "1.1.0",
+  "description": "QQ 空间「空友爱看」自动动态：每天最多 3 条（素材来自当天 QQ 私聊/群聊或 B 站），还会给好友动态点赞评论、回自己动态下面的留言",
+  "icon": "icon.svg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kakamiku/dsh-qzone.git"
+  },
+  "homepage": "https://github.com/kakamiku/dsh-qzone#readme",
+  "bugs": {
+    "url": "https://github.com/kakamiku/dsh-qzone/issues"
+  },
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./icon": "./icon.svg",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE",
+    "icon.svg",
+    "locale/"
+  ],
+  "keywords": [
+    "dsh-plugin",
+    "dsh-qzone",
+    "deepseek-harness",
+    "qq",
+    "qzone",
+    "napcat",
+    "onebot"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "ws": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    },
+    "ws": {
+      "optional": true
+    }
+  }
+}
