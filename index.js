@@ -38,7 +38,7 @@
  *
  * @module dsh-qzone
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { zstdDecompressSync } from 'node:zlib';
@@ -49,8 +49,9 @@ import { collectNewsMaterial, pickLocalImage } from './sources.js';
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.5.1';
+export const version = '1.5.2';
 const PLUGIN_VERSION = version; // 挂载时打进日志，方便确认跑的是哪版
+// 2026-11-02：共享记忆改造 —— 发动态后往共享事件流写一笔（版本号 +1 便于确认热重载生效）
 
 // ---------------------------------------------------------------------------
 // 宿主依赖（都是 optional peer；拿不到就降级，插件照常挂载）
@@ -117,7 +118,8 @@ const MEDIA_DIR = join(DSH_HOME, 'media', 'onebot');
 const STATE_FILE = join(MEDIA_DIR, 'qzone-state.json');
 const BV_CACHE_FILE = join(MEDIA_DIR, 'qzone-bv-titles.json');
 const SESSIONS_DIR = join(DSH_HOME, 'sessions');
-const WRITER_CWD = join(DSH_HOME, 'qzone-workspace');
+// 2026-11-02 老大定的：发动态的会话统一住「肥鱼玩QQ」工作区（B 站那边的会话才住「肥鱼刷b站」）
+const WRITER_CWD = 'D:\\肥鱼玩QQ';
 /** 写作用的会话 id 前缀（system-prompt 钩子靠它认出「自己的」会话）。 */
 const WRITER_SESSION_PREFIX = 'qzone-writer-';
 /** Asia/Shanghai 固定 UTC+8（国内无夏令时，直接按偏移算，最省事也最可控）。 */
@@ -571,6 +573,38 @@ function diaryDir() {
     if (existsSync(candidate)) return candidate;
   }
   return 'D:\\Diary';
+}
+
+/**
+ * 把 QQ 侧发生的事写进**共享**事件流 `whale-log.jsonl`（和 B 站侧同一本）。
+ *
+ * 2026-11-02 老大定的：QQ 和 B 站是同一条鱼，记忆要打通。
+ * 所以本插件每发一条空间动态，就往那本事件流里记一笔 —— B 站那边就看得见
+ * 「QQ 侧今天发了什么」。
+ *
+ * ⚠️ 只记「发过什么」这件事本身，不把正文抖进事件流 —— 正文可能含聊天里的私事。
+ *    正文要看就去 qzone-state.json 的 posts 里查。
+ * ⚠️ 写失败绝不能影响发动态本身（一律吞掉）。
+ *
+ * @param {{kind: string, target: string, note: string, source?: string}} ev
+ */
+export function appendSharedLog(ev) {
+  try {
+    const dir = diaryDir();
+    if (!dir) return false;
+    mkdirSync(dir, { recursive: true });
+    const line = JSON.stringify({
+      at: new Date().toISOString(),
+      kind: ev.kind,
+      target: ev.target ?? null,
+      note: ev.note ?? null,
+      source: ev.source ?? 'qq:qzone',
+    }) + '\n';
+    appendFileSync(join(dir, 'whale-log.jsonl'), line, 'utf8');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1891,6 +1925,14 @@ async function runOnceInner(deps, options = {}) {
     if (fresh.posts.length > 60) fresh.posts = fresh.posts.slice(-60);
     saveState(fresh);
     deps.state = fresh;
+
+    // 记进共享事件流（B 站侧看得见「QQ 侧今天发了什么」）✓
+    appendSharedLog({
+      kind: 'qzone',
+      target: `tid:${posted.tid}`,
+      note: `QQ 空间动态已发（素材:${picked.label}｜带图:${images.length > 0 ? 'yes' : 'no'}）`,
+      source: 'qq:qzone',
+    });
   } finally {
     releaseLock();
   }
@@ -2705,3 +2747,4 @@ export function apply(ctx, config) {
     };
   }, 'dsh-qzone.lifecycle');
 }
+// 热重载触发 2026-11-02 —— 共享记忆改造：QQ 空间动态发出后往共享事件流写一笔（kind: 'qzone'）
