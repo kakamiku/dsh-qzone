@@ -284,6 +284,41 @@ check('结果全是 HH:MM 的形状（正则全过）', () => {
 });
 
 // ===========================================================================
+// 三、buildWriterPrompt（人设可替换）
+// ===========================================================================
+
+console.log('');
+console.log('--- buildWriterPrompt（人设） ---');
+
+const SOURCE = { kind: 'bili' };
+const MATERIAL = ['【某视频】标题：今天的一天'];
+
+check('留空人设 → 用默认的「大肥鱼」', () => {
+  const prompt = testing.buildWriterPrompt(SOURCE, MATERIAL, '');
+  assert.ok(prompt.includes('大肥鱼'), '默认人设应该在提示里');
+  assert.ok(prompt.includes('【素材】'), '素材段应该在');
+});
+
+check('填了自己的人设 → 整段替换掉默认人设', () => {
+  const mine = '你是一只柯基，短腿，嘴硬。';
+  const prompt = testing.buildWriterPrompt(SOURCE, MATERIAL, '', mine);
+  assert.ok(prompt.includes(mine), '自己人设应该在');
+  assert.ok(!prompt.includes('大肥鱼'), '默认人设不该再出现');
+  assert.ok(!prompt.includes('鲸鱼'), '默认人设的词不该残留');
+});
+
+check('自己人设 → 规则里不再说「大肥鱼的味道」', () => {
+  const prompt = testing.buildWriterPrompt(SOURCE, MATERIAL, '', '你是一只柯基，短腿，嘴硬。');
+  assert.ok(!prompt.includes('大肥鱼的味道'));
+});
+
+check('主人特别要求照样拼在最后', () => {
+  const prompt = testing.buildWriterPrompt(SOURCE, MATERIAL, '别提工作', '你是一只柯基。');
+  assert.ok(prompt.includes('【主人的特别要求】'));
+  assert.ok(prompt.indexOf('【主人的特别要求】') > prompt.indexOf('【素材】'), '特别要求应该在素材后面');
+});
+
+// ===========================================================================
 // 汇总
 // ===========================================================================
 

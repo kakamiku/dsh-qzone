@@ -1,6 +1,6 @@
 {
   "name": "dsh-qzone",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "description": "QQ 空间自动动态：每天最多 3 条（素材来自当天 QQ 私聊/群聊、B 站视频或新闻 RSS），还会给好友动态点赞评论、回自己动态下面的留言；设置在 DSH 设置页里调",
   "icon": "icon.svg",
   "repository": {

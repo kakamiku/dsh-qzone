@@ -56,11 +56,11 @@ function diag(message) {
 export const ENTRY_ID = 'dsh-qzone';
 /** Typert Remote 命名空间 = cordis 服务键（= 客户端 ctx.get('remote.qzoneSettings')）。 */
 export const NAMESPACE = 'qzoneSettings';
-/** 快照固定值：23 键统一插件级热生效（保存后插件秒级原地重启）。 */
+/** 快照固定值：24 键统一插件级热生效（保存后插件秒级原地重启）。 */
 export const REMOTE_EFFECT = 'restart';
 
 /**
- * 设置页四组 23 键（面板分组；与客户端 client.js 的 GROUPS 逐字对齐）。
+ * 设置页四组 24 键（面板分组；与客户端 client.js 的 GROUPS 逐字对齐）。
  *   post   发动态
  *   social 好友动态
  *   reply  回评论
@@ -69,7 +69,7 @@ export const REMOTE_EFFECT = 'restart';
 export const SETTINGS_GROUPS = {
   post: [
     'dailyLimit', 'scheduleEnabled', 'scheduleAt', 'scheduleIntervalMs',
-    'imageRatio', 'ugcRight', 'writerPrompt', 'defaultSource',
+    'imageRatio', 'ugcRight', 'persona', 'writerPrompt', 'defaultSource',
     'newsLimit', 'newsFeeds', 'newsLike', 'newsDislike', 'newsKeywords',
     'newsFollowBiliPreferences', 'localImageDir', 'writerTimeoutMs',
   ],
@@ -92,6 +92,7 @@ export const SCHEMA_DEFAULTS = {
   imageRatio: 0,
   ugcRight: 1,
   writerPrompt: '',
+  persona: '',
   defaultSource: 'auto',
   newsLimit: 6,
   newsFeeds: [],
@@ -126,7 +127,7 @@ export const SCHEMA_DEFAULTS = {
 /** 快照返回侧需要脱敏的键（本插件没有，留空数组以对齐通用契约）。 */
 export const SECRET_KEYS = [];
 
-/** 全部 23 键（校验与快照的唯一键集；顺序 = 分组声明顺序）。 */
+/** 全部 24 键（校验与快照的唯一键集；顺序 = 分组声明顺序）。 */
 export const ALL_KEYS = Object.values(SETTINGS_GROUPS).flat();
 
 /** 枚举键的取值集合。 */
@@ -149,7 +150,7 @@ export const BOOLEAN_KEYS = [
   'socialEnabled', 'replyEnabled', 'replySkipSelf',
 ];
 /** 字符串键。 */
-export const STRING_KEYS = ['writerPrompt', 'localImageDir'];
+export const STRING_KEYS = ['writerPrompt', 'persona', 'localImageDir'];
 /** 字符串数组键（QQ 号列表 / RSS 地址列表 / 偏好关键词）。 */
 export const STRING_ARRAY_KEYS = [
   'ownerUsers', 'socialAllowUsers', 'socialBlockUsers',
@@ -388,7 +389,7 @@ export function buildSnapshot(entry, state) {
 }
 
 /**
- * updateSettings 入参校验：23 键的任意子集，扁平 JSON。
+ * updateSettings 入参校验：24 键的任意子集，扁平 JSON。
  * 未知键整单拒绝（不静默丢弃）；类型/枚举/区间不符拒绝。
  * 具体取值合法性再交由宿主 schemastery 校验 + reconcile 失败自动回滚兜底。
  */

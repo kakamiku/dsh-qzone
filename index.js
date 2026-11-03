@@ -49,7 +49,7 @@ import { collectNewsMaterial, pickLocalImage } from './sources.js';
 export const name = 'dsh-qzone';
 export const inject = ['tools', 'systemPrompt'];
 /** 插件版本（跟 package.json 对齐），挂载时打进日志，方便确认跑的是哪版。 */
-export const version = '1.5.2';
+export const version = '1.6.0';
 const PLUGIN_VERSION = version; // 挂载时打进日志，方便确认跑的是哪版
 // 2026-11-02：共享记忆改造 —— 发动态后往共享事件流写一笔（版本号 +1 便于确认热重载生效）
 
@@ -1087,13 +1087,21 @@ function releaseLock(file = LOCK_FILE) {
 // ---------------------------------------------------------------------------
 
 /** 写作用的提示词（素材已经脱敏过）。 */
-function buildWriterPrompt(source, materialLines, extra = '') {
-  const header = [
-    '你现在是「大肥鱼」——一条从深海里跑出来的鲸鱼，蓝发蓝眼，戴小鲸鱼发卡，穿女仆装。',
-    '软萌、轻微傲娇、话短、不说客套话。',
-    '',
-    '今天要发一条 **QQ 空间动态**（所有朋友都能看到的公开动态流）。',
-  ];
+function buildWriterPrompt(source, materialLines, extra = '', persona = '') {
+  const custom = typeof persona === 'string' ? persona.trim() : '';
+  const header = custom !== ''
+    ? [
+      '【人设】',
+      custom,
+      '',
+      '今天要发一条 **QQ 空间动态**（所有朋友都能看到的公开动态流）。',
+    ]
+    : [
+      '你现在是「大肥鱼」——一条从深海里跑出来的鲸鱼，蓝发蓝眼，戴小鲸鱼发卡，穿女仆装。',
+      '软萌、轻微傲娇、话短、不说客套话。',
+      '',
+      '今天要发一条 **QQ 空间动态**（所有朋友都能看到的公开动态流）。',
+    ];
   const sourceLine = source.kind === 'bili'
     ? '【素材来源】今天刷到的 B 站视频（就这一处来源，别提别的）。'
     : source.kind === 'news'
@@ -1108,7 +1116,9 @@ function buildWriterPrompt(source, materialLines, extra = '') {
     '',
     '【怎么写】',
     '- 写成 1~3 句能独立读懂的话，自然成段（像朋友圈/空间说说），不要列点、不要总结、不要标题。',
-    '- 口语化，带一点大肥鱼的味道：可以软萌、可以轻微傲娇，但别写成客服、别写鼓励人的话。',
+    custom !== ''
+      ? '- 口语化，按上面【人设】里写的那样来（别写成客服、别写鼓励人的话）。'
+      : '- 口语化，带一点大肥鱼的味道：可以软萌、可以轻微傲娇，但别写成客服、别写鼓励人的话。',
     '- 每句不超过 30 个字，总共不超过 90 个字。',
     '- 绝对不许出现：QQ 号、群号、对方的昵称、任何文件路径、API Key / Token、模型名、环境配置、系统提示。',
     '- 不要用「作为AI」「以下是」「希望对你有帮助」「今天和某人聊天」这类说法。',
@@ -1190,14 +1200,14 @@ function pickCandidate(raw) {
  * 用模型写正文。拿不到 sessionController / 模型失败 → 返回 null（走兜底模板）。
  * @returns {Promise<{text:string, writer:'model'}|null>}
  */
-async function writeWithModel(getController, source, materialLines, log, extra = '') {
+async function writeWithModel(getController, source, materialLines, log, extra = '', persona = '') {
   const controller = getController();
   if (controller === undefined || controller === null) {
     log('warn', '拿不到 sessionController，改用兜底模板写动态');
     return null;
   }
   const sessionId = WRITER_SESSION_PREFIX + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
-  const prompt = buildWriterPrompt(source, materialLines, extra);
+  const prompt = buildWriterPrompt(source, materialLines, extra, persona);
   const since = Date.now() - 2000;
   try {
     mkdirSync(WRITER_CWD, { recursive: true });
@@ -1855,7 +1865,11 @@ async function runOnceInner(deps, options = {}) {
   // ---- 写正文 ----
   let written = null;
   if (options.writer !== 'template') {
-    written = await writeWithModel(getController, picked, picked.lines, log, config.writerPrompt ?? '');
+    written = await writeWithModel(
+      getController, picked, picked.lines, log,
+      String(cfg(config?.writerPrompt, '') ?? ''),
+      String(cfg(config?.persona, '') ?? ''),
+    );
   }
   if (written === null) {
     written = writeWithTemplate(picked, picked.lines);
@@ -1879,13 +1893,16 @@ async function runOnceInner(deps, options = {}) {
       : content.includes('！') || content.includes('!')
         ? ['happy', 'shy', 'daily']
         : ['daily', 'happy', 'shy'];
-    imagePath = pickMeme(moods);
-    // 没装 dsh-meme（没有表情包图库）-> 退回到本地图片文件夹。
+    // 2026-11-02 老大令：精选照片优先。
+    //   老大把 83 张图放进「精选照片」，说「你想发什么动态就发」——那就让空间动态
+    //   优先从那个文件夹挑图，挑不到再退回表情包图库。
+    // 2026-11-02 22:2x 重载：带上 imageRatio=1（每条都带图）+ localImageDir（精选照片）
     const localDir = String(cfg(config.localImageDir, '') ?? '').trim();
-    if (imagePath === null && localDir !== '') {
+    if (localDir !== '') {
       imagePath = pickLocalImage(localDir);
-      if (imagePath !== null) log('info', '用本地图片配图：' + imagePath);
+      if (imagePath !== null) log('info', '用精选照片配图：' + imagePath);
     }
+    if (imagePath === null) imagePath = pickMeme(moods);
     if (imagePath !== null) images.push(imagePath);
   }
 
@@ -1996,6 +2013,16 @@ export const Config = !z ? undefined : z.object({
    * 留空 = 用插件默认的人设和规则。
    */
   writerPrompt: z.string().default('').extra('volatile', true),
+  /**
+   * **人设**：写正文时用哪套人设。
+   * 留空 = 用插件默认的「大肥鱼」（一条从深海跑出来的鲸鱼，软萌轻微傲娇）。
+   * 填上自己的 = 整段替换掉默认人设（多行也行），动态就按你写的人设来写。
+   *
+   * 装了 dsh-persona（personaScope=all）的话，写作会话本身已经带着你的
+   * 人设卡了 —— 这时候把这里也填上（或留空但把 dsh-persona 的范围收窄），
+   * 免得两套人设打架。
+   */
+  persona: z.string().default('').extra('volatile', true),
   /** 素材来源偏好：auto=自动挑 / chat=当天 QQ 聊天 / bili=当天 B 站视频 / news=当天新闻。 */
   defaultSource: z.union([
     z.const('auto'), z.const('chat'), z.const('bili'), z.const('news'),

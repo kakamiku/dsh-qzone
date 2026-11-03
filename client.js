@@ -68,7 +68,8 @@ window.__ModuleLoader__.load({
 					{ key: "scheduleIntervalMs", label: "定时器轮询间隔（毫秒）", type: "number", hint: "多久检查一次「到点没」。默认 60000（1 分钟）。" },
 					{ key: "imageRatio", label: "带图概率", type: "number", hint: "0 = 只发纯文字，1 = 只发带图，0.5 = 一半一半。每发一条掷一次骰子。图源优先用 dsh-meme 的表情包；没装 dsh-meme 就从下面的「本地图片文件夹」里挑。" },
 					{ key: "ugcRight", label: "可见范围", type: "enum", options: [1, 4, 16, 64, 128], optionLabels: { 1: "所有人可见", 4: "仅好友可见", 16: "部分好友可见", 64: "仅自己可见", 128: "部分好友不可见" }, hint: "对应 NapCat 的 ugc_right。1 = 所有人可见（默认）。" },
-					{ key: "writerPrompt", label: "动态发布内容", type: "text", hint: "追加到写作提示里的自定义要求，例如「多写深海里的事」「别提工作」「今天想 emo 一点」。留空 = 用插件默认人设。" },
+					{ key: "persona", label: "人设", type: "text", hint: "写动态时用哪套人设。留空 = 用插件默认的「大肥鱼」。填上自己的 = 整段替换掉默认人设，动态就按你写的人设来。装了 dsh-persona 的话，写作会话已经带着你的人设卡，这里再填一份就以这份为准。" },
+					{ key: "writerPrompt", label: "动态发布内容", type: "text", hint: "追加到写作提示里的自定义要求，例如「多写深海里的事」「别提工作」「今天想 emo 一点」。留空 = 只按人设来写。" },
 					{ key: "defaultSource", label: "素材来源", type: "enum", options: ["auto", "chat", "bili", "news"], optionLabels: { auto: "自动挑", chat: "当天的 QQ 对话", bili: "当天的 B 站视频", news: "当天的新闻" }, hint: "一条动态只用一个来源，绝不混用。news 不需要装任何插件，插件自带 RSS 抓取。" },
 					{ key: "newsLimit", label: "新闻素材最多取几条", type: "number", hint: "只用 news 来源时生效，默认 6 条。" },
 					{ key: "newsFeeds", label: "自定义新闻源（RSS）", type: "stringList", hint: "每行一个 RSS/Atom 地址。留空 = 用插件自带的 6 个源。" },
@@ -137,6 +138,7 @@ window.__ModuleLoader__.load({
 			imageRatio: 0,
 			ugcRight: 1,
 			writerPrompt: "",
+			persona: "",
 			defaultSource: "auto",
 			newsLimit: 6,
 			newsFeeds: [],
@@ -285,7 +287,7 @@ window.__ModuleLoader__.load({
 		//#endregion
 
 		//#region Typert Remote 严格 descriptor（与 host 侧 settings-remote.js 的方法面逐字对齐）
-		/** 33 键生效值（host buildSnapshot 的 effectiveConfig 全键返回）。 */
+		/** 34 键生效值（host buildSnapshot 的 effectiveConfig 全键返回）。 */
 		var configSchema = vObject({
 			dailyLimit: vNumber(),
 			scheduleEnabled: vBoolean(),
@@ -294,6 +296,7 @@ window.__ModuleLoader__.load({
 			imageRatio: vNumber(),
 			ugcRight: vNumberEnum([1, 4, 16, 64, 128]),
 			writerPrompt: vString(0, 4096),
+			persona: vString(0, 4096),
 			defaultSource: vEnum(["auto", "chat", "bili", "news"]),
 			newsLimit: vNumber(),
 			newsFeeds: vArray(vString(0, 1024)),
@@ -333,7 +336,7 @@ window.__ModuleLoader__.load({
 			}),
 			effect: vEnum(["restart"]),
 		});
-		/** updateSettings 入参（33 键任意子集的扁平 JSON）。 */
+		/** updateSettings 入参（34 键任意子集的扁平 JSON）。 */
 		var patchSchema = vObject({
 			dailyLimit: vOptional(vNumber()),
 			scheduleEnabled: vOptional(vBoolean()),
@@ -342,6 +345,7 @@ window.__ModuleLoader__.load({
 			imageRatio: vOptional(vNumber()),
 			ugcRight: vOptional(vNumberEnum([1, 4, 16, 64, 128])),
 			writerPrompt: vOptional(vString(0, 4096)),
+			persona: vOptional(vString(0, 4096)),
 			defaultSource: vOptional(vEnum(["auto", "chat", "bili", "news"])),
 			newsLimit: vOptional(vNumber()),
 			newsFeeds: vOptional(vArray(vString(0, 1024))),
